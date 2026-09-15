@@ -1,0 +1,20 @@
+{
+  "allow_hosts": ["www.googleapis.com"],
+  "poll_seconds": 10,
+  "state_db": ".state/scheduler.sqlite3",
+  "log_path": "logs/api.jsonl",
+  "jobs": [
+    {
+      "name": "example-google-api-check",
+      "enabled": false,
+      "schedule": {"type": "daily", "at": "08:00"},
+      "retries": 2,
+      "retry_wait_seconds": 2,
+      "request": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/discovery/v1/apis",
+        "timeout_seconds": 20
+      }
+    }
+  ]
+}
