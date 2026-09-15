@@ -36,18 +36,33 @@ class ScheduledRunner:
     def __init__(self, config: dict[str, Any], dry_run: bool = False) -> None:
         self.config = resolve_env(config)
         self.dry_run = dry_run
+        self.root = Path(self.config.get("root_dir", ".")).expanduser().resolve()
         self.allowed_hosts = {str(x).lower() for x in self.config.get("allow_hosts", [])}
         self.poll_seconds = max(float(self.config.get("poll_seconds", 10)), 1.0)
-        self.state_db = Path(self.config.get("state_db", ".state/scheduler.sqlite3")).expanduser().resolve()
-        self.log_path = Path(self.config.get("log_path", "logs/api.jsonl")).expanduser().resolve()
+        self.state_db = self._path(str(self.config.get("state_db", ".state/scheduler.sqlite3")))
+        self.log_path = self._path(str(self.config.get("log_path", "logs/api.jsonl")))
         self.jobs = self.config.get("jobs", [])
+        if not self.allowed_hosts:
+            raise RunnerError("allow_hosts must not be empty")
         if not isinstance(self.jobs, list) or not self.jobs:
             raise RunnerError("jobs must be a non-empty list")
         if not self.dry_run:
+            self.root.mkdir(parents=True, exist_ok=True)
             self.state_db.parent.mkdir(parents=True, exist_ok=True)
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             with sqlite3.connect(self.state_db) as con:
                 con.execute("CREATE TABLE IF NOT EXISTS run_keys (run_key TEXT PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+
+    def _path(self, value: str) -> Path:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = self.root / path
+        path = path.resolve()
+        try:
+            path.relative_to(self.root)
+        except ValueError as exc:
+            raise RunnerError(f"Path is outside root_dir: {path}") from exc
+        return path
 
     def log(self, event: dict[str, Any]) -> None:
         row = {"ts": datetime.now().astimezone().isoformat(), **event}
