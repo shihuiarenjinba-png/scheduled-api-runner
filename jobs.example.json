@@ -1,4 +1,5 @@
 {
+  "root_dir": "./scheduled-work",
   "allow_hosts": ["www.googleapis.com"],
   "poll_seconds": 10,
   "state_db": ".state/scheduler.sqlite3",
