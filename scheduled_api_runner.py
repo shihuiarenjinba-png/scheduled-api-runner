@@ -18,6 +18,13 @@ class RunnerError(RuntimeError):
     pass
 
 
+class _RejectRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects so allowlisted requests cannot escape to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
 def resolve_env(value: Any) -> Any:
     if isinstance(value, str) and value.startswith("${ENV:") and value.endswith("}"):
         name = value[6:-1]
@@ -37,8 +44,10 @@ class ScheduledRunner:
         self.config = resolve_env(config)
         self.dry_run = dry_run
         self.root = Path(self.config.get("root_dir", ".")).expanduser().resolve()
-        self.allowed_hosts = {str(x).lower() for x in self.config.get("allow_hosts", [])}
-        self.poll_seconds = max(float(self.config.get("poll_seconds", 10)), 1.0)
+        self.allowed_hosts = {str(x).strip().lower() for x in self.config.get("allow_hosts", []) if str(x).strip()}
+        self.poll_seconds = min(max(float(self.config.get("poll_seconds", 10)), 1.0), 3600.0)
+        self.failure_retry_seconds = min(max(float(self.config.get("failure_retry_seconds", 30)), 1.0), 3600.0)
+        self.running_stale_seconds = min(max(float(self.config.get("running_stale_seconds", 600)), 60.0), 86400.0)
         self.state_db = self._path(str(self.config.get("state_db", ".state/scheduler.sqlite3")))
         self.log_path = self._path(str(self.config.get("log_path", "logs/api.jsonl")))
         self.jobs = self.config.get("jobs", [])
@@ -50,8 +59,7 @@ class ScheduledRunner:
             self.root.mkdir(parents=True, exist_ok=True)
             self.state_db.parent.mkdir(parents=True, exist_ok=True)
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(self.state_db) as con:
-                con.execute("CREATE TABLE IF NOT EXISTS run_keys (run_key TEXT PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            self._init_state_db()
 
     def _path(self, value: str) -> Path:
         path = Path(value).expanduser()
@@ -64,6 +72,36 @@ class ScheduledRunner:
             raise RunnerError(f"Path is outside root_dir: {path}") from exc
         return path
 
+    def _connect(self) -> sqlite3.Connection:
+        con = sqlite3.connect(self.state_db, timeout=5.0)
+        con.execute("PRAGMA busy_timeout=5000")
+        return con
+
+    def _init_state_db(self) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_key TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    updated_at REAL NOT NULL,
+                    last_error TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            legacy = con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='run_keys'"
+            ).fetchone()
+            if legacy:
+                now = time.time()
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO runs(run_key, status, updated_at, last_error)
+                    SELECT run_key, 'succeeded', ?, '' FROM run_keys
+                    """,
+                    (now,),
+                )
+
     def log(self, event: dict[str, Any]) -> None:
         row = {"ts": datetime.now().astimezone().isoformat(), **event}
         print(json.dumps(row, ensure_ascii=False))
@@ -72,22 +110,53 @@ class ScheduledRunner:
         with self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    def _claim(self, run_key: str) -> bool:
+    def _begin_run(self, run_key: str) -> bool:
         if self.dry_run:
             return True
-        try:
-            with sqlite3.connect(self.state_db) as con:
-                con.execute("INSERT INTO run_keys(run_key) VALUES (?)", (run_key,))
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT status, updated_at FROM runs WHERE run_key=?", (run_key,)).fetchone()
+            if row is not None:
+                status = str(row[0])
+                age = max(now - float(row[1]), 0.0)
+                if status == "succeeded":
+                    return False
+                if status == "running" and age < self.running_stale_seconds:
+                    return False
+                if status == "failed" and age < self.failure_retry_seconds:
+                    return False
+            con.execute(
+                """
+                INSERT INTO runs(run_key, status, updated_at, last_error)
+                VALUES(?, 'running', ?, '')
+                ON CONFLICT(run_key) DO UPDATE SET status='running', updated_at=excluded.updated_at, last_error=''
+                """,
+                (run_key, now),
+            )
             return True
-        except sqlite3.IntegrityError:
-            return False
+
+    def _finish_run(self, run_key: str, *, success: bool, error: str = "") -> None:
+        if self.dry_run:
+            return
+        with self._connect() as con:
+            con.execute(
+                "UPDATE runs SET status=?, updated_at=?, last_error=? WHERE run_key=?",
+                ("succeeded" if success else "failed", time.time(), str(error)[:1000], run_key),
+            )
 
     def _schedule_key(self, job: dict[str, Any], now: datetime) -> str | None:
         schedule = job.get("schedule", {})
+        if not isinstance(schedule, dict):
+            raise RunnerError("schedule must be an object")
         schedule_type = schedule.get("type")
         name = str(job.get("name", "unnamed"))
         if schedule_type == "daily":
             at = str(schedule.get("at", ""))
+            try:
+                datetime.strptime(at, "%H:%M")
+            except ValueError as exc:
+                raise RunnerError(f"Invalid daily time for {name}: {at}") from exc
             if now.strftime("%H:%M") != at:
                 return None
             return f"{name}|daily|{now.strftime('%Y-%m-%d')}|{at}"
@@ -101,11 +170,17 @@ class ScheduledRunner:
 
     def _request(self, job: dict[str, Any]) -> None:
         request_cfg = job.get("request", {})
+        if not isinstance(request_cfg, dict):
+            raise RunnerError("request must be an object")
         url = str(request_cfg["url"])
         parsed = urllib.parse.urlparse(url)
         host = (parsed.hostname or "").lower()
         if parsed.scheme != "https":
             raise RunnerError("Only HTTPS URLs are allowed")
+        if parsed.username or parsed.password:
+            raise RunnerError("Credentials in URL userinfo are not allowed")
+        if parsed.fragment:
+            raise RunnerError("URL fragments are not allowed")
         if host not in self.allowed_hosts:
             raise RunnerError(f"Host is not allowed: {host}")
 
@@ -121,24 +196,39 @@ class ScheduledRunner:
         if "json" in request_cfg:
             data = json.dumps(request_cfg["json"]).encode("utf-8")
             headers.setdefault("Content-Type", "application/json")
-        timeout = float(request_cfg.get("timeout_seconds", 30))
-        retries = max(int(job.get("retries", 0)), 0)
-        retry_wait = max(float(job.get("retry_wait_seconds", 2)), 0.0)
+        timeout = min(max(float(request_cfg.get("timeout_seconds", 30)), 1.0), 300.0)
+        retries = min(max(int(job.get("retries", 0)), 0), 10)
+        retry_wait = min(max(float(job.get("retry_wait_seconds", 2)), 0.0), 60.0)
+        opener = urllib.request.build_opener(_RejectRedirectHandler())
 
-        last_error: Exception | None = None
+        last_error = "request_failed"
         for attempt in range(retries + 1):
             try:
                 req = urllib.request.Request(url, data=data, headers=headers, method=method)
-                with urllib.request.urlopen(req, timeout=timeout) as response:
+                with opener.open(req, timeout=timeout) as response:
+                    final = urllib.parse.urlparse(response.geturl())
+                    final_host = (final.hostname or "").lower()
+                    if final.scheme != "https" or final_host != host:
+                        raise RunnerError("HTTP response URL changed unexpectedly")
                     body = response.read(1_000_000)
-                    self.log({"event": "request_ok", "job": job.get("name"), "status": response.status, "bytes": len(body)})
+                    self.log({"event": "request_ok", "job": job.get("name"), "status": response.status, "host": host, "bytes": len(body)})
                     return
-            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-                last_error = exc
-                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": str(exc)})
-                if attempt < retries:
-                    time.sleep(retry_wait)
-        raise RunnerError(f"Request failed after retries: {last_error}")
+            except urllib.error.HTTPError as exc:
+                if 300 <= exc.code < 400:
+                    last_error = "redirect_rejected"
+                    self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": last_error, "status": exc.code, "host": host})
+                    break
+                last_error = f"http_{exc.code}"
+                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": last_error, "host": host})
+            except urllib.error.URLError as exc:
+                last_error = "network_error"
+                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": last_error, "reason_type": type(exc.reason).__name__, "host": host})
+            except TimeoutError:
+                last_error = "timeout"
+                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": last_error, "host": host})
+            if attempt < retries:
+                time.sleep(retry_wait)
+        raise RunnerError(f"Request failed: {last_error}")
 
     def run_job(self, job: dict[str, Any]) -> None:
         if job.get("enabled", True) is False:
@@ -153,8 +243,15 @@ class ScheduledRunner:
             if job.get("enabled", True) is False:
                 continue
             run_key = self._schedule_key(job, now)
-            if run_key and self._claim(run_key):
+            if not run_key or not self._begin_run(run_key):
+                continue
+            try:
                 self.run_job(job)
+            except (RunnerError, OSError, ValueError) as exc:
+                self._finish_run(run_key, success=False, error=type(exc).__name__)
+                self.log({"event": "scheduled_job_failed", "job": job.get("name"), "error": type(exc).__name__})
+                continue
+            self._finish_run(run_key, success=True)
 
     def run_all_once(self) -> None:
         for job in self.jobs:
