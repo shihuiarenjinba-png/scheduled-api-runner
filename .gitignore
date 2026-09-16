@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 .state/
 logs/
+scheduled-work/
 credentials*.json
 client_secret*.json
 token*.json
