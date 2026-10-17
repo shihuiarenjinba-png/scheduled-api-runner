@@ -26,6 +26,7 @@ class ScheduledApiDesktop:
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
+        self._once_running = False
         self.stop_event = threading.Event()
         self._build()
         default = Path(__file__).resolve().parent / "jobs.example.json"
@@ -113,9 +114,9 @@ class ScheduledApiDesktop:
         scroll.pack(side="right", fill="y")
         ttk.Label(outer, textvariable=self.status).pack(fill="x", pady=(8, 0))
 
-        if self.monitor_thread is not None:
+        if self.monitor_thread is not None or self._once_running:
             self.start_btn.configure(state="disabled")
-            self.stop_btn.configure(state="normal")
+            self.stop_btn.configure(state="normal" if self.monitor_thread is not None else "disabled")
             self.run_btn.configure(state="disabled")
             self.dry_btn.configure(state="disabled")
 
@@ -200,7 +201,7 @@ class ScheduledApiDesktop:
         return buffer.getvalue()
 
     def _dry_run(self) -> None:
-        if not self._load_config(True):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
             return
         assert self.config is not None
         raw = self.config
@@ -230,16 +231,20 @@ class ScheduledApiDesktop:
         risk = self.t("\nPOST/PUT/PATCH/DELETEを含む有効ジョブがあります。", "\nEnabled jobs include POST/PUT/PATCH/DELETE.") if self._has_mutating_jobs() else ""
         mode = self.t("定期実行を開始", "Start scheduled execution") if scheduled else self.t("有効ジョブを今すぐ1回実行", "Run enabled jobs once now")
         message = self.t(
-            f"{mode}します。外部APIへ実際に送信されます。{risk}\n\nDry Runと設定確認が済んでいる場合だけ続行してください。",
-            f"{mode}. Real requests will be sent to external APIs.{risk}\n\nContinue only after Dry Run and configuration review.",
+            f"{mode}します。外部APIへ実際に送信されます。{risk}\n更新系リクエストは自動再送しません。手動で再実行すると再送されます。\n\nDry Runと設定確認が済んでいる場合だけ続行してください。",
+            f"{mode}. Real requests will be sent to external APIs.{risk}\nMutating requests are not automatically retried; manual re-runs send them again.\n\nContinue only after Dry Run and configuration review.",
         )
         return messagebox.askyesno(self.t("実API実行", "Live API execution"), message, parent=self.root)
 
     def _live_once(self) -> None:
-        if not self._load_config(True) or not self._confirm_live(False):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True) or not self._confirm_live(False):
             return
         assert self.config is not None
         raw = self.config
+        self._once_running = True
+        self.run_btn.configure(state="disabled")
+        self.dry_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
         self.status.set(self.t("実API実行中…", "Running live requests…"))
 
         def worker() -> None:
@@ -252,13 +257,18 @@ class ScheduledApiDesktop:
         threading.Thread(target=worker, daemon=True).start()
 
     def _finish(self, ok: bool, text: str, status: str) -> None:
+        self._once_running = False
         self._append(text)
         self.status.set(status)
+        if self.monitor_thread is None:
+            self.run_btn.configure(state="normal")
+            self.dry_btn.configure(state="normal")
+            self.start_btn.configure(state="normal")
         if not ok:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
     def _start_scheduler(self) -> None:
-        if not self._load_config(True) or self.monitor_thread is not None or not self._confirm_live(True):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True) or not self._confirm_live(True):
             return
         assert self.config is not None
         raw = self.config
