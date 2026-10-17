@@ -46,13 +46,27 @@ python scheduled_api_runner.py jobs.example.json
 python -m unittest discover -s tests -v
 ```
 
+## 安全な更新系API実行（レビュー中）
+
+この作業ブランチでは、GETとPOST/PUT/PATCH/DELETEを区別します。
+
+- **GET**: 設定した回数まで再試行し、失敗時はスケジュール枠のバックオフ後に再実行できます。
+- **POST/PUT/PATCH/DELETE**: 通信タイムアウトやHTTPエラーがあっても、**同じリクエストの自動再送は行いません**。設定済みのretries値は無効になります。
+- 更新系ジョブの結果が失敗・不明なとき、そのスケジュール枠の状態を `uncertain` として記録します。実行中にアプリが落ちた場合も、古い `running` を同じ枠では自動回収しません。
+- 同名ジョブを拒否し、状態DBの接続を明示的に閉じます。GUIは手動実行中の重複操作を防ぎます。
+
+**重要な限界:** 外部APIが実際に処理したかまでは判定できません。「厳密な一度だけ実行」を保証するものではありません。更新系ジョブは**次のスケジュール枠**や明示的な手動 `--once` で再び送信できます。送信後に応答を失った場合は提供元の処理履歴・idempotency keyなどで状態を照合してから、手動で再送してください。送信を伴うテストでは所有・許可されたAPI環境を使ってください。
+
+追加回帰テスト: `python -m unittest discover -s tests -v`。GitHub ActionsまたはWindows実機での実行結果を確認するまでは未検証として扱い、Store販売を承認しません。
+
 ## 実行枠の扱い
 
 - `succeeded`: 同じrun keyは再実行しない
-- `failed`: `failure_retry_seconds` 経過後に再試行可能
-- `running`: `running_stale_seconds` 未満は二重実行を防止し、古くなった実行は再取得可能
+- `failed`: GETのみ `failure_retry_seconds` 経過後に再試行可能
+- `uncertain`: 更新系の結果が不明。同じ枠では自動再実行しない
+- `running`: GETは `running_stale_seconds` を超えると再取得可能。更新系は再取得禁止
 
-API実行前に永久claimする方式ではないため、ネットワーク障害等で失敗しても、その時間枠を回復不能にしません。
+GETの再試行は維持しますが、更新系APIは未確認の副作用を避けるため安全停止を優先します。
 
 ## Network safety / ネットワーク安全性
 
