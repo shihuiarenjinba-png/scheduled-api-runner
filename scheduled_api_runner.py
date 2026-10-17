@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import sqlite3
@@ -11,7 +12,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 class RunnerError(RuntimeError):
@@ -55,6 +56,16 @@ class ScheduledRunner:
             raise RunnerError("allow_hosts must not be empty")
         if not isinstance(self.jobs, list) or not self.jobs:
             raise RunnerError("jobs must be a non-empty list")
+        names: set[str] = set()
+        for job in self.jobs:
+            if not isinstance(job, dict):
+                raise RunnerError("Each job must be an object")
+            name = job.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise RunnerError("Every job needs a non-empty name")
+            if name in names:
+                raise RunnerError(f"Duplicate job name: {name}")
+            names.add(name)
         if not self.dry_run:
             self.root.mkdir(parents=True, exist_ok=True)
             self.state_db.parent.mkdir(parents=True, exist_ok=True)
@@ -72,10 +83,15 @@ class ScheduledRunner:
             raise RunnerError(f"Path is outside root_dir: {path}") from exc
         return path
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         con = sqlite3.connect(self.state_db, timeout=5.0)
-        con.execute("PRAGMA busy_timeout=5000")
-        return con
+        try:
+            con.execute("PRAGMA busy_timeout=5000")
+            with con:
+                yield con
+        finally:
+            con.close()
 
     def _init_state_db(self) -> None:
         with self._connect() as con:
@@ -110,7 +126,12 @@ class ScheduledRunner:
         with self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    def _begin_run(self, run_key: str) -> bool:
+    @staticmethod
+    def _read_only(job: dict[str, Any]) -> bool:
+        request = job.get("request", {})
+        return isinstance(request, dict) and str(request.get("method", "GET")).upper() == "GET"
+
+    def _begin_run(self, run_key: str, *, retry_allowed: bool = True) -> bool:
         if self.dry_run:
             return True
         now = time.time()
@@ -120,7 +141,9 @@ class ScheduledRunner:
             if row is not None:
                 status = str(row[0])
                 age = max(now - float(row[1]), 0.0)
-                if status == "succeeded":
+                # Mutating requests may have completed remotely even when
+                # their local outcome is unknown. Never reclaim their slot.
+                if status in {"succeeded", "uncertain"} or not retry_allowed:
                     return False
                 if status == "running" and age < self.running_stale_seconds:
                     return False
@@ -136,13 +159,13 @@ class ScheduledRunner:
             )
             return True
 
-    def _finish_run(self, run_key: str, *, success: bool, error: str = "") -> None:
+    def _finish_run(self, run_key: str, *, success: bool, error: str = "", uncertain: bool = False) -> None:
         if self.dry_run:
             return
         with self._connect() as con:
             con.execute(
                 "UPDATE runs SET status=?, updated_at=?, last_error=? WHERE run_key=?",
-                ("succeeded" if success else "failed", time.time(), str(error)[:1000], run_key),
+                ("succeeded" if success else ("uncertain" if uncertain else "failed"), time.time(), str(error)[:1000], run_key),
             )
 
     def _schedule_key(self, job: dict[str, Any], now: datetime) -> str | None:
@@ -198,6 +221,12 @@ class ScheduledRunner:
             headers.setdefault("Content-Type", "application/json")
         timeout = min(max(float(request_cfg.get("timeout_seconds", 30)), 1.0), 300.0)
         retries = min(max(int(job.get("retries", 0)), 0), 10)
+        if method != "GET" and retries:
+            # A timeout/HTTP error does not prove that a POST/PATCH/etc
+            # failed remotely. A blind retry can duplicate a real operation.
+            self.log({"event": "mutating_retry_blocked", "job": job.get("name"),
+                      "method": method, "configured_retries": retries})
+            retries = 0
         retry_wait = min(max(float(job.get("retry_wait_seconds", 2)), 0.0), 60.0)
         opener = urllib.request.build_opener(_RejectRedirectHandler())
 
@@ -243,13 +272,19 @@ class ScheduledRunner:
             if job.get("enabled", True) is False:
                 continue
             run_key = self._schedule_key(job, now)
-            if not run_key or not self._begin_run(run_key):
+            if not run_key:
+                continue
+            read_only = self._read_only(job)
+            if not self._begin_run(run_key, retry_allowed=read_only):
                 continue
             try:
                 self.run_job(job)
             except (RunnerError, OSError, ValueError) as exc:
-                self._finish_run(run_key, success=False, error=type(exc).__name__)
-                self.log({"event": "scheduled_job_failed", "job": job.get("name"), "error": type(exc).__name__})
+                self._finish_run(run_key, success=False, error=type(exc).__name__,
+                                 uncertain=not read_only)
+                self.log({"event": "scheduled_job_uncertain" if not read_only else "scheduled_job_failed",
+                          "job": job.get("name"), "error": type(exc).__name__,
+                          "auto_retry": read_only})
                 continue
             self._finish_run(run_key, success=True)
 
