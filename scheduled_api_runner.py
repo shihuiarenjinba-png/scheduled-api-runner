@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from api_series_store import SeriesError, update_series, validate_writer
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -66,6 +67,14 @@ class ScheduledRunner:
             if name in names:
                 raise RunnerError(f"Duplicate job name: {name}")
             names.add(name)
+            if 'csv_update' in job:
+                req = job.get('request', {})
+                if not isinstance(req, dict) or str(req.get('method', 'GET')).upper() != 'GET':
+                    raise RunnerError('csv_update only supports read-only GET jobs')
+                try:
+                    validate_writer(job['csv_update'], self.root)
+                except SeriesError as exc:
+                    raise RunnerError(f'Invalid csv_update settings: {exc}') from exc
         if not self.dry_run:
             self.root.mkdir(parents=True, exist_ok=True)
             self.state_db.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +220,8 @@ class ScheduledRunner:
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise RunnerError(f"Unsupported HTTP method: {method}")
         if self.dry_run:
+            if 'csv_update' in job:
+                validate_writer(job['csv_update'], self.root)
             self.log({"event": "dry_run_request", "job": job.get("name"), "method": method, "host": host})
             return
 
@@ -239,7 +250,25 @@ class ScheduledRunner:
                     final_host = (final.hostname or "").lower()
                     if final.scheme != "https" or final_host != host:
                         raise RunnerError("HTTP response URL changed unexpectedly")
-                    body = response.read(1_000_000)
+                    if not 200 <= response.status < 300:
+                        raise RunnerError('Non-success API HTTP status')
+                    export = job.get('csv_update')
+                    body = response.read(2_000_001 if export is not None else 1_000_000)
+                    if export is not None:
+                        if len(body) > 2_000_000:
+                            raise RunnerError('API JSON response exceeds 2 MB limit')
+                        try:
+                            payload = json.loads(body.decode('utf-8-sig'))
+                        except (UnicodeError, json.JSONDecodeError):
+                            raise RunnerError('API did not return valid UTF-8 JSON') from None
+                        if not isinstance(payload, (dict, list)):
+                            raise RunnerError('API JSON must be an object or array')
+                        status = update_series(self.root, export, payload, datetime.now().astimezone())
+                        # Deliberately do not log returned values, file paths or secrets.
+                        self.log({'event': 'daily_csv_update', 'job': job.get('name'),
+                                  'result': status['status'], 'date': status['date'],
+                                  'rows': status['rows'],
+                                  'backup_created': status.get('backup_created', False)})
                     self.log({"event": "request_ok", "job": job.get("name"), "status": response.status, "host": host, "bytes": len(body)})
                     return
             except urllib.error.HTTPError as exc:
