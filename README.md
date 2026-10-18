@@ -109,3 +109,25 @@ the advanced view for Dry Run and deliberate execution. Advanced requests
 still require JSON editing; the beginner wizard does not support arbitrary API
 configuration. Run `python -m unittest discover -s tests -v` on a verified
 Windows build and review `tests/test_guided_config.py`.
+
+
+## JSONデータ取得画面 / JSON API Data Explorer (Draft 2026-10-18)
+
+A new **first tab** lets customers enter one or more HTTPS GET endpoints on the
+left, select JSON field paths, then view fetched rows and raw JSON on the right.
+It supports up to 10 independent API sources and up to 32 selected fields each.
+Examples: Order = orders[*].id, Revenue = orders[*].amount, Total = total.
+You can save a new, non-overwriting Excel .xlsx workbook (real JSON numbers are
+numeric cells), text .txt, or raw .json. User-created source/field templates
+are JSON behind the GUI; header **values** are not saved.
+
+**Important:** This is a new, **manual** fetch/export feature, not scheduled
+Excel export. The old advanced JSON scheduler remains in its own tab. Offline
+preview is NOT a test of the live API response. Running a GET requires separate
+confirmation of the destination hosts; there are no automatic retries. Some
+services require OAuth, pagination or rate-limit handling which this initial
+feature does not yet support. Use authorized APIs only.
+
+Implementation and QA limits: docs/API_JSON_EXPLORER_DRAFT.md.
+The new tests are *authored*, not CI-PASS. No main merges, MSIX sale or Store
+submission are authorized from this branch.
