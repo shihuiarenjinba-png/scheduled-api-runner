@@ -17,7 +17,7 @@
 
 ## State of the app code (not the Store registration)
 
-JSON-based desktop GUI, first-use instructions and dry-run guard added. Still no beginner form-based rule creation, verified Windows CI, or Store MSIX.
+A beginner GET setup form, manual JSON field explorer, dated CSV history output wizard, duplicate-date guard and optional Windows task controls are present on the development branch. These are not verified on real Windows yet; no successful private CI jobs or sale-ready MSIX.
 
 ## No-sales acceptance conditions
 
