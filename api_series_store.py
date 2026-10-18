@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 from datetime import datetime, date
 import os
+import shutil
 from pathlib import Path
 import re
 import tempfile
@@ -22,7 +23,7 @@ class SeriesError(ValueError):
 
 
 MAX_CSV_BYTES = 25_000_000
-_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[Tt ][0-9:.\-+Zz]+)?$")
+_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def validate_writer(cfg: dict, root: Path) -> tuple[Path, list[str]]:
@@ -79,9 +80,19 @@ def _date_from_response(payload: object, config: dict, now: datetime) -> str:
     if config.get("date_path"):
         _, rows = extract_rows(payload, "date = " + config["date_path"])
         raw = rows[0]["date"] if rows else ""
-        if not isinstance(raw, str) or not _DATE_PATTERN.fullmatch(raw):
+        if not isinstance(raw, str):
             raise SeriesError("Response date must be ISO YYYY-MM-DD or ISO datetime")
         chosen = raw[:10]
+        try:
+            if _DATE_PATTERN.fullmatch(raw):
+                date.fromisoformat(raw)
+            elif (len(raw) > 11 and _DATE_PATTERN.fullmatch(chosen)
+                  and raw[10] in ("T", " ")):
+                datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            else:
+                raise ValueError("Not an ISO date/time")
+        except ValueError:
+            raise SeriesError("API returned an invalid ISO date/time") from None
     else:
         if now.tzinfo is None:
             raise SeriesError("An aware local datetime is required")
@@ -206,8 +217,28 @@ def update_series(root: Path, cfg: dict, payload: object, now: datetime) -> dict
                 raise SeriesError("CSV changed while preparing update; operation aborted")
             backup = parent / ("." + target.name + ".backup-" +
                                datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8])
-            # Hard link preserves exact original bytes even after os.replace.
-            os.link(target, backup)
+            # Never hard-link the live original: another process holding it
+            # open could change the backup's bytes before final publication.
+            # Snapshot into a unique staging file and publish that snapshot
+            # under a new backup name, preserving the source file unchanged.
+            backup_fd, backup_tmpname = tempfile.mkstemp(
+                dir=parent, prefix=".series-backup-stage-", suffix=".tmp")
+            backup_stage = Path(backup_tmpname)
+            try:
+                with os.fdopen(backup_fd, "wb") as dest, target.open("rb") as src:
+                    shutil.copyfileobj(src, dest)
+                    dest.flush()
+                    os.fsync(dest.fileno())
+                # Detect a concurrent source change during the copy.
+                new_stat = target.stat()
+                if (new_stat.st_dev, new_stat.st_ino,
+                    new_stat.st_size, new_stat.st_mtime_ns) != (
+                        original.st_dev, original.st_ino,
+                        original.st_size, original.st_mtime_ns):
+                    raise SeriesError("CSV changed while copying backup; aborting")
+                os.link(backup_stage, backup)
+            finally:
+                backup_stage.unlink(missing_ok=True)
         if original is None and target.exists():
             raise SeriesError("CSV appeared while preparing update; operation aborted")
         try:
