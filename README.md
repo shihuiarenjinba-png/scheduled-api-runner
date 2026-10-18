@@ -73,3 +73,20 @@ GETの再試行は維持しますが、更新系APIは未確認の副作用を�
 最初のURLがallowlist済みでも、HTTP redirectで別ホストへ移動することは許可しません。接続先は最初から最後まで指定したHTTPSホストに固定します。ログとGUIには認証ヘッダや秘密値を表示しない設計を維持します。
 
 Google OAuth系は専用Connector側で扱い、Refresh Token等をこのRunnerの設定JSONへ直書きしません。
+
+## GUI preview-before-live change (2026-10-18, unverified draft)
+
+The Japanese/English desktop now shows an explicit three-stage workflow:
+select a JSON file → Validate/Dry Run → confirm once or start scheduler.
+
+- The desktop requires a **successful** Dry Run for the exact unchanged
+  JSON file path and content. Validation of one config never approves another.
+- While Dry Run is active, a second live/scheduled operation is blocked.
+- A live run or start of scheduling consumes approval before any API call,
+  so an ambiguous response cannot silently grant another replay.
+- UI worker-error callbacks preserve the error text for the main thread;
+  changing the display language is blocked while processing.
+- This is a **GUI safety gate**. The explicit CLI `--once` entrypoint remains
+  a user-directed operation and must not be advertised as guarded by the GUI.
+- **GitHub Actions is blocked before test steps** on this branch; see
+  `QA_HANDOFF_20261018.md`. Do not claim PASS or sell this code.
