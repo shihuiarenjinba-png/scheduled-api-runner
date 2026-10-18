@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from api_job_config import ConfigurationError, build_daily_job
 from scheduled_api_runner import RunnerError, ScheduledRunner
+from win_task import TaskError, register, unregister
 
 
 class JobWindow(ttk.Frame):
@@ -28,6 +29,7 @@ class JobWindow(ttk.Frame):
         self.status = tk.StringVar(value='Set endpoint and existing CSV, then validate.')
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
+        self.saved_path: Path | None = None
         self._layout()
         master.protocol('WM_DELETE_WINDOW', self._close)
 
@@ -95,7 +97,8 @@ class JobWindow(ttk.Frame):
                 return
             with Path(chosen).open('x', encoding='utf-8') as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
-            self.status.set('Saved new settings file. Environment-variable token value was not stored.')
+            self.saved_path = Path(chosen).resolve()
+            self.status.set('Settings saved. Windows task registration is now available.')
         except FileExistsError:
             messagebox.showerror('Not overwritten', 'This settings file exists. Choose a new filename.')
         except (ConfigurationError, OSError, ValueError) as exc:
