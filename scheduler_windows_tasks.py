@@ -97,13 +97,16 @@ def _execute(args: list[str]) -> None:
         raise WindowsTaskError("Windows rejected task registration or removal; inspect Task Scheduler")
 
 
-def register_task(config_path: Path) -> str:
+def register_task(config_path: Path, *, expected_sha256: str) -> str:
     if not _is_windows():
         raise WindowsTaskError("Use this feature on Windows")
     path = config_path.expanduser().resolve()
     if not path.is_file():
         raise WindowsTaskError("Save the task JSON before registration")
-    args = build_register_command(path, path.read_bytes())
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise WindowsTaskError("Config changed after approval; preview again")
+    args = build_register_command(path, content)
     # No /F: refuse existing tasks rather than silently replacing them.
     _execute(args)
     return task_name(path)
