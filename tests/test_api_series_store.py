@@ -112,9 +112,9 @@ class CsvUpdateTests(unittest.TestCase):
 
     def test_malformed_historical_csv_is_not_rewritten(self):
         bad_contents = (
-            b"date,sales,orders\\n2026-10-17,1\\n",
-            b"date,sales,orders\\n,1,2\\n",
-            b"date,sales,orders\\n2026-10-17,1,2\\n2026-10-17,3,4\\n",
+            b"date,sales,orders\n2026-10-17,1\n",
+            b"date,sales,orders\n,1,2\n",
+            b"date,sales,orders\n2026-10-17,1,2\n2026-10-17,3,4\n",
         )
         target = self.root / "sales.csv"
         for original in bad_contents:
