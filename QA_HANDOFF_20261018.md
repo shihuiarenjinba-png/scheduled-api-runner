@@ -71,3 +71,23 @@ For Windows EXE, use `desktop_app.py` as the GUI entrypoint and include
 `jobs.example.json`; Store packaging/certification is not complete.
 Product identity recorded at
 `store/PARTNER_CENTER_IDENTITY_HANDOFF_20261018.md`.
+
+
+## Additional draft API JSON Explorer scope (new development branch)
+
+- The new default desktop tab allows left-side multi-source GET settings,
+  selected JSON paths, right-side result preview, and .xlsx/.txt/.json exports.
+- A template is a separate JSON format (schema_version: 1, sources), **not**
+  a scheduler jobs JSON file. Auth header values stay in application memory.
+- This is NOT recurring scheduled export; the pre-existing scheduler remains
+  on a different tab with its previous functionality.
+- All export targets use exclusive new-file publication: never overwrite old
+  customer files. Treat failed hard-link publication as failure, not as consent
+  to replace a destination.
+- API data can be sensitive. No actual endpoint, credential or downloaded
+  response should appear in shared CI artifacts, screenshots or logs.
+- New tests in tests/test_api_data_explorer.py need to run on the exact branch
+  SHA. The known GitHub Actions runner issue prevents calling them PASS.
+- Complete Windows GUI and spreadsheet interoperability checks before sale.
+- The existing Store text still describes the prior feature set: reconcile
+  with final tested behavior and request owner sign-off before publication.
