@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
-from guided_config import GuidedConfigError, make_get_job, add_daily_csv_output, save_new_config
+from guided_config import GuidedConfigError, make_get_job, add_daily_csv_output, add_auth_header_env, save_new_config
 from api_data_panel import ApiDataExplorerPanel
 from scheduler_windows_tasks import (
     WindowsTaskError, register_task, unregister_task, validate_dated_get_config, run_locked_config
@@ -30,13 +30,15 @@ class ScheduledApiDesktop:
         self.root.minsize(900, 640)
         self.config_path = tk.StringVar()
         self.guide_root = tk.StringVar()
-        self.guide_name = tk.StringVar(value="Daily status check")
-        self.guide_url = tk.StringVar(value="https://example.com/status")
+        self.guide_name = tk.StringVar(value="Daily API data")
+        self.guide_url = tk.StringVar(value="https://example.com/api/data")
         self.guide_at = tk.StringVar(value="09:00")
         self.guide_csv_enabled = tk.BooleanVar(value=True)
         self.guide_csv_path = tk.StringVar(value="daily-sales.csv")
         self.guide_csv_fields = tk.StringVar(value="sales = data.sales")
         self.guide_csv_date_path = tk.StringVar(value="")
+        self.guide_auth_header = tk.StringVar(value="")
+        self.guide_auth_env = tk.StringVar(value="")
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
@@ -67,12 +69,13 @@ class ScheduledApiDesktop:
         self.explorer_tab = ttk.Frame(self.notebook)
         self.guide_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.explorer_tab, text=self.t("APIデータ取得・保存", "API Data Explorer"))
+        self.notebook.add(self.guide_tab, text=self.t("① 毎日CSV取得の設定", "1. Daily CSV setup"))
+        self.notebook.add(self.explorer_tab, text=self.t("② API項目を調べる", "2. Inspect API fields"))
+        self.notebook.add(self.advanced_tab, text=self.t("③ 試運転・実行", "3. Preview / Run"))
         self.explorer = ApiDataExplorerPanel(
-            self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer)
+            self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer,
+            on_schedule_source=self._use_explorer_source)
         self.explorer.pack(fill='both', expand=True)
-        self.notebook.add(self.guide_tab, text=self.t("はじめに・新規設定", "Start here / New setup"))
-        self.notebook.add(self.advanced_tab, text=self.t("詳細・試運転・実行", "Advanced / Preview / Run"))
         self._build_guide()
         outer = ttk.Frame(self.advanced_tab, padding=18)
         outer.pack(fill="both", expand=True)
@@ -184,14 +187,14 @@ class ScheduledApiDesktop:
         guide_lang.pack(side="right")
         guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
         ttk.Label(pane, text=self.t(
-            "決めた時刻に、指定したHTTPS APIへリクエストを送るWindowsアプリです。\n"
-            "例えば、自社APIの状態確認を毎朝9時に実行できます。クラウドサーバー不要。\n"
-            "まずは安全なGETリクエストを1件だけ作ります。POSTなどの更新操作は詳細設定で扱います。",
-            "Send requests to a chosen HTTPS API on a schedule from your Windows PC.\n"
-            "Example: check an API status at 9 AM every day. No cloud server required.\n"
-            "This guided setup creates just one GET request. Mutating requests require advanced setup.",
+            "APIから今日の数値を取得し、昨日までのCSVデータに日付ごとに追記します。\n"
+            "使い方：①保存先・API URL・JSON項目・時刻を指定 → ②必要ならAPI項目を調べる "
+            "→ ③設定を保存 → ④試運転 → ⑤承認して実行またはWindowsタスク登録。",
+            "Fetch daily API values and append one dated row to your existing CSV history.\n"
+            "1. Set destination, HTTPS URL, JSON fields and time. 2. Inspect API fields if needed. "
+            "3. Save. 4. Dry Run. 5. Approve live execution or optional Windows task.",
         ), wraplength=880, justify="left").pack(anchor="w", pady=(0, 16))
-        group = ttk.LabelFrame(pane, text=self.t("① 実行したい内容を入力", "1. Set up a status check"), padding=12)
+        group = ttk.LabelFrame(pane, text=self.t("① API取得とCSV履歴を設定", "1. API and CSV history setup"), padding=12)
         group.pack(fill="x", pady=(0, 12))
         group.columnconfigure(1, weight=1)
         fields = [
@@ -223,11 +226,23 @@ class ScheduledApiDesktop:
             "Set e.g. data.date when the API includes a date; otherwise use PC run date. "
             "Duplicate dates are skipped and original CSV is backed up before updates."),
             wraplength=780).grid(row=8, column=0, columnspan=3, sticky="w", pady=(2, 6))
+        ttk.Label(group, text=self.t(
+            "認証ヘッダー名（任意、例 X-API-Key）",
+            "Authentication header (optional, e.g. X-API-Key)")).grid(row=9, column=0, sticky="w", pady=4)
+        ttk.Entry(group, textvariable=self.guide_auth_header).grid(row=9, column=1, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "Windows環境変数の名前（例 MY_SALES_API_KEY）",
+            "Windows environment variable name (e.g. MY_SALES_API_KEY)")).grid(row=10, column=0, sticky="w", pady=4)
+        ttk.Entry(group, textvariable=self.guide_auth_env).grid(row=10, column=1, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "秘密のAPIキー自体は入力しません。利用者のWindows環境変数を事前に設定してください。",
+            "Do not paste an API key here. Set the variable in your Windows account first."),
+            wraplength=820).grid(row=11, column=0, columnspan=3, sticky="w", pady=5)
         ttk.Label(pane, text=self.t(
             "② 設定を新規保存するだけではAPIへの通信は発生しません.保存後の画面で試運転を実行してください。\n"
-            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。定期実行中はアプリを開いたままにしてください。",
-            "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
-            "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
+            "③ 試運転後に実行を承認します。アプリを閉じたい場合は、ログオン中のWindowsタスクとして登録できます。",
+            "2. Saving a config sends no requests. Complete Dry Run on the next tab.\n"
+            "3. Approve live execution, or register a daily Windows task to run while signed in.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
         ttk.Button(pane, text=self.t("設定JSONを新規保存して次へ →", "Save new config and continue →"),
                    command=self._create_guided_config).pack(anchor="w", pady=(0, 10))
@@ -239,6 +254,28 @@ class ScheduledApiDesktop:
             "Note: GET-only wizard. Do not put API keys or secrets in URLs or names.\n"
             "Advanced JSON supports environment-variable references for credentials.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(14, 0))
+
+    def _use_explorer_source(self, source: dict) -> None:
+        """Bring a manually inspected API's selected JSON fields into daily setup."""
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        if "[*]" in source["fields"]:
+            messagebox.showwarning(
+                self.t("日次データは1行です", "Daily data is one observation"),
+                self.t("配列[*]を扱う画面は手動取得用です。毎日CSV履歴では1項目に1つの値だけ指定してください。",
+                       "The daily CSV updater expects one scalar per field. Remove [*] array selectors."),
+                parent=self.root)
+            return
+        self.guide_url.set(source["url"])
+        self.guide_csv_fields.set(source["fields"])
+        self.guide_auth_header.set(source.get("header_name", ""))
+        self.guide_name.set(source["name"])
+        self.guide_csv_enabled.set(True)
+        self.notebook.select(self.guide_tab)
+        self.preview_revision = None
+        self.status.set(self.t(
+            "APIの項目を取り込みました。CSV名・日付項目・認証環境変数を確認して保存してください。",
+            "API fields imported. Review CSV name, date path and authentication variable, then save."))
 
     def _guide_language_changed(self, _event=None) -> None:
         if self._once_running or self.monitor_thread is not None or self.explorer.busy:
@@ -270,6 +307,9 @@ class ScheduledApiDesktop:
                     config, path=self.guide_csv_path.get(),
                     fields=self.guide_csv_fields.get(),
                     date_path=self.guide_csv_date_path.get(), on_duplicate='skip')
+            config = add_auth_header_env(
+                config, header_name=self.guide_auth_header.get(),
+                env_name=self.guide_auth_env.get())
         except (GuidedConfigError, OSError) as exc:
             messagebox.showerror(self.t("設定内容を確認", "Check your settings"), str(exc), parent=self.root)
             return
