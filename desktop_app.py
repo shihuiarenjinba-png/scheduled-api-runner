@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
-from guided_config import GuidedConfigError, make_get_job, save_new_config
+from guided_config import GuidedConfigError, make_get_job, add_daily_csv_output, save_new_config
 from api_data_panel import ApiDataExplorerPanel
 from ui_language import load_language, save_language
 
@@ -30,6 +30,10 @@ class ScheduledApiDesktop:
         self.guide_name = tk.StringVar(value="Daily status check")
         self.guide_url = tk.StringVar(value="https://example.com/status")
         self.guide_at = tk.StringVar(value="09:00")
+        self.guide_csv_enabled = tk.BooleanVar(value=True)
+        self.guide_csv_path = tk.StringVar(value="daily-sales.csv")
+        self.guide_csv_fields = tk.StringVar(value="sales = data.sales")
+        self.guide_csv_date_path = tk.StringVar(value="")
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
@@ -179,8 +183,26 @@ class ScheduledApiDesktop:
             ttk.Entry(group, textvariable=variable).grid(row=i, column=1, sticky="ew", pady=6)
         ttk.Button(group, text=self.t("選択…", "Browse…"), command=self._choose_guide_root).grid(
             row=0, column=2, padx=(8, 0))
+        ttk.Checkbutton(group, variable=self.guide_csv_enabled, text=self.t(
+            "取得したJSONの値を日付付きCSVに追記（初期ON）",
+            "Append extracted API values into dated CSV (on by default)")).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(7, 2))
+        outputs = [
+            (self.t("CSVファイル名（例 daily-sales.csv）", "CSV filename (e.g. daily-sales.csv)"), self.guide_csv_path),
+            (self.t("抽出項目（例 sales = data.sales）", "Fields (e.g. sales = data.sales)"), self.guide_csv_fields),
+            (self.t("APIの日付項目（任意）", "API date path (optional)"), self.guide_csv_date_path),
+        ]
+        for i, (label, variable) in enumerate(outputs, 5):
+            ttk.Label(group, text=label).grid(row=i, column=0, sticky="w", padx=(0, 10), pady=4)
+            ttk.Entry(group, textvariable=variable).grid(row=i, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "API内に日付がある場合は data.date などを指定。空欄ならPCの実行日を記録。"
+            "同じ日付はスキップ。更新時は元CSVのバックアップを保持します。",
+            "Set e.g. data.date when the API includes a date; otherwise use PC run date. "
+            "Duplicate dates are skipped and original CSV is backed up before updates."),
+            wraplength=780).grid(row=8, column=0, columnspan=3, sticky="w", pady=(2, 6))
         ttk.Label(pane, text=self.t(
-            "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
+            "② 設定を新規保存するだけではAPIへの通信は発生しません.保存後の画面で試運転を実行してください。\n"
             "③ 試運転結果を確認した後、1回実行か定期実行を選びます。定期実行中はアプリを開いたままにしてください。",
             "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
             "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
@@ -221,6 +243,11 @@ class ScheduledApiDesktop:
                 root_dir=self.guide_root.get(), name=self.guide_name.get(),
                 url=self.guide_url.get(), daily_at=self.guide_at.get(),
             )
+            if getattr(self, 'guide_csv_enabled', None) is not None and self.guide_csv_enabled.get():
+                config = add_daily_csv_output(
+                    config, path=self.guide_csv_path.get(),
+                    fields=self.guide_csv_fields.get(),
+                    date_path=self.guide_csv_date_path.get(), on_duplicate='skip')
         except (GuidedConfigError, OSError) as exc:
             messagebox.showerror(self.t("設定内容を確認", "Check your settings"), str(exc), parent=self.root)
             return
