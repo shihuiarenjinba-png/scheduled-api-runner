@@ -8,7 +8,7 @@ if ($LASTEXITCODE -ne 0) { throw 'build dependency installation failed.' }
 python -m unittest discover -s tests -v
 if ($LASTEXITCODE -ne 0) { throw 'unit/UI language tests failed.' }
 
-python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner desktop_app.py
+python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner --add-data "jobs.example.json;." desktop_app.py
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
 
 Write-Host 'Built ScheduledApiRunner.exe after regression and language tests passed.'
