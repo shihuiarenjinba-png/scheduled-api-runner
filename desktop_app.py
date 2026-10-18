@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
+from guided_config import GuidedConfigError, make_get_job, save_new_config
 from ui_language import load_language, save_language
 
 APP_ID = "scheduled-api-runner"
@@ -24,6 +25,10 @@ class ScheduledApiDesktop:
         self.root.geometry("1080x760")
         self.root.minsize(900, 640)
         self.config_path = tk.StringVar()
+        self.guide_root = tk.StringVar()
+        self.guide_name = tk.StringVar(value="Daily status check")
+        self.guide_url = tk.StringVar(value="https://example.com/status")
+        self.guide_at = tk.StringVar(value="09:00")
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
@@ -46,7 +51,14 @@ class ScheduledApiDesktop:
             child.destroy()
         self.root.title(self.t("定期API実行", "Scheduled API Runner"))
 
-        outer = ttk.Frame(self.root, padding=18)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+        self.guide_tab = ttk.Frame(self.notebook)
+        self.advanced_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.guide_tab, text=self.t("はじめに・新規設定", "Start here / New setup"))
+        self.notebook.add(self.advanced_tab, text=self.t("詳細・試運転・実行", "Advanced / Preview / Run"))
+        self._build_guide()
+        outer = ttk.Frame(self.advanced_tab, padding=18)
         outer.pack(fill="both", expand=True)
 
         language = ttk.Frame(outer)
@@ -123,13 +135,115 @@ class ScheduledApiDesktop:
             self.run_btn.configure(state="disabled")
             self.dry_btn.configure(state="disabled")
 
+    def _build_guide(self) -> None:
+        pane = ttk.Frame(self.guide_tab, padding=20)
+        pane.pack(fill="both", expand=True)
+        banner = ttk.Frame(pane)
+        banner.pack(fill="x", pady=(0, 10))
+        ttk.Label(banner, text=self.t("定期API実行とは？", "What does Scheduled API Runner do?"),
+                  font=("Segoe UI", 18, "bold")).pack(side="left")
+        guide_lang = ttk.Combobox(banner, textvariable=self.language_var if hasattr(self, "language_var")
+                                   else tk.StringVar(value="日本語" if self.lang == "ja" else "English"),
+                                   values=("日本語", "English"), state="readonly", width=10)
+        # Use the same controlled language selection as the advanced view.
+        self.guide_language = guide_lang
+        guide_lang.pack(side="right")
+        guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
+        ttk.Label(pane, text=self.t(
+            "決めた時刻に、指定したHTTPS APIへリクエストを送るWindowsアプリです。\n"
+            "例えば、自社APIの状態確認を毎朝9時に実行できます。クラウドサーバー不要。\n"
+            "まずは安全なGETリクエストを1件だけ作ります。POSTなどの更新操作は詳細設定で扱います。",
+            "Send requests to a chosen HTTPS API on a schedule from your Windows PC.\n"
+            "Example: check an API status at 9 AM every day. No cloud server required.\n"
+            "This guided setup creates just one GET request. Mutating requests require advanced setup.",
+        ), wraplength=880, justify="left").pack(anchor="w", pady=(0, 16))
+        group = ttk.LabelFrame(pane, text=self.t("① 実行したい内容を入力", "1. Set up a status check"), padding=12)
+        group.pack(fill="x", pady=(0, 12))
+        group.columnconfigure(1, weight=1)
+        fields = [
+            (self.t("作業用フォルダー", "Local work folder"), self.guide_root),
+            (self.t("ジョブ名", "Job name"), self.guide_name),
+            (self.t("HTTPS URL", "HTTPS URL"), self.guide_url),
+            (self.t("毎日の実行時刻 (HH:MM)", "Daily time (HH:MM)"), self.guide_at),
+        ]
+        for i, (label, variable) in enumerate(fields):
+            ttk.Label(group, text=label).grid(row=i, column=0, sticky="w", pady=6, padx=(0, 10))
+            ttk.Entry(group, textvariable=variable).grid(row=i, column=1, sticky="ew", pady=6)
+        ttk.Button(group, text=self.t("選択…", "Browse…"), command=self._choose_guide_root).grid(
+            row=0, column=2, padx=(8, 0))
+        ttk.Label(pane, text=self.t(
+            "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
+            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。Windows起動中だけ動作します。",
+            "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
+            "3. Review the preview, then choose Run Once or Start Scheduler. The PC/app must remain running.",
+        ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
+        ttk.Button(pane, text=self.t("設定JSONを新規保存して次へ →", "Save new config and continue →"),
+                   command=self._create_guided_config).pack(anchor="w", pady=(0, 10))
+        ttk.Button(pane, text=self.t("既存JSONを使う（詳細画面へ）", "Use existing JSON (advanced)"),
+                   command=lambda: self.notebook.select(self.advanced_tab)).pack(anchor="w")
+        ttk.Label(pane, text=self.t(
+            "注意：この画面はGET専用です。APIキー等の秘密情報はURLやジョブ名に入力せず、\n"
+            "詳細設定で環境変数による管理を使用してください。",
+            "Note: GET-only wizard. Do not put API keys or secrets in URLs or names.\n"
+            "Advanced JSON supports environment-variable references for credentials.",
+        ), wraplength=870, justify="left").pack(anchor="w", pady=(14, 0))
+
+    def _guide_language_changed(self, _event=None) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            self.guide_language.set("English" if self.lang == "en" else "日本語")
+            return
+        self.lang = "en" if self.guide_language.get() == "English" else "ja"
+        save_language(APP_ID, self.lang)
+        self._build()
+        if self.config is not None:
+            self._render_summary(self.config)
+
+    def _choose_guide_root(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
+        directory = filedialog.askdirectory(parent=self.root)
+        if directory:
+            self.guide_root.set(directory)
+
+    def _create_guided_config(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
+        try:
+            config = make_get_job(
+                root_dir=self.guide_root.get(), name=self.guide_name.get(),
+                url=self.guide_url.get(), daily_at=self.guide_at.get(),
+            )
+        except (GuidedConfigError, OSError) as exc:
+            messagebox.showerror(self.t("設定内容を確認", "Check your settings"), str(exc), parent=self.root)
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self.root, defaultextension=".json", initialfile="api-job.json",
+            filetypes=[("JSON", "*.json")],
+        )
+        if not path:
+            return
+        try:
+            save_new_config(path, config)
+        except OSError as exc:
+            messagebox.showerror(self.t("保存できませんでした", "Could not save"), str(exc), parent=self.root)
+            return
+        self.preview_revision = None
+        self.config_path.set(str(path))
+        self.notebook.select(self.advanced_tab)
+        self._load_config(True)
+        self.status.set(self.t("保存完了。次はDry Runです（まだAPIへ送信していません）。",
+                               "Saved. Next: Dry Run (no API request has been sent)."))
+
     def _language_changed(self, _event=None) -> None:
         if self._once_running or self.monitor_thread is not None:
             self.language_var.set("English" if self.lang == "en" else "日本語")
             return
+        was_advanced = self.notebook.select() == str(self.advanced_tab)
         self.lang = "en" if self.language_var.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
+        if was_advanced:
+            self.notebook.select(self.advanced_tab)
         if self.config is not None:
             self._render_summary(self.config)
         self.status.set(self.t("定期実行中", "Scheduler running") if self.monitor_thread is not None else self.t("準備完了", "Ready"))
