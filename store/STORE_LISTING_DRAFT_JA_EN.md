@@ -4,7 +4,7 @@
 
 ## 日本語
 
-**製品名（予約済み）:** scheduled api runner
+**製品名（予約済み）:** Scheduled API Runner
 
 **短い説明:**
 指定したHTTPS APIへのリクエストを、Windows PCから手動または定期実行。設定の試運転・承認に対応。
