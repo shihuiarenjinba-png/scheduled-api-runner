@@ -87,28 +87,28 @@ class ApiDataExplorerPanel(ttk.Frame):
         ttk.Label(left, text=self.t(
             "秘密鍵はURLに入れないでください。必要なら下の認証ヘッダーを利用します。",
             "Never put API keys in URLs. Use the optional authentication header."),
-            wraplength=330).grid(row=4, column=0, sticky="w", pady=(2, 6))
-        self._label_entry(left, 5, self.t("認証ヘッダー名（任意、例：X-API-Key）",
+            wraplength=330).grid(row=6, column=0, sticky="w", pady=(2, 6))
+        self._label_entry(left, 7, self.t("認証ヘッダー名（任意、例：X-API-Key）",
                                                "Auth header name (optional: X-API-Key)"), self.header_var)
-        ttk.Label(left, text=self.t("認証値（保存しません）", "Auth value (not saved)")).grid(row=6, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.secret_var, show="*").grid(row=7, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(left, text=self.t("認証値（保存しません）", "Auth value (not saved)")).grid(row=9, column=0, sticky="w")
+        ttk.Entry(left, textvariable=self.secret_var, show="*").grid(row=10, column=0, sticky="ew", pady=(0, 6))
         ttk.Label(left, text=self.t(
             "欲しい項目を1行ずつ。左は表示名、右はJSONの場所です。\n"
             "例：売上 = data.sales\n商品 = items[*].name\n金額 = items[*].price",
             "One field per line: label = JSON path.\n"
             "e.g. Sales = data.sales\nProduct = items[*].name\nPrice = items[*].price"),
-            wraplength=330).grid(row=8, column=0, sticky="w")
+            wraplength=330).grid(row=11, column=0, sticky="w")
         self.fields_editor = tk.Text(left, height=7, wrap="none")
-        self.fields_editor.grid(row=9, column=0, sticky="nsew", pady=3)
-        left.rowconfigure(9, weight=1)
+        self.fields_editor.grid(row=12, column=0, sticky="nsew", pady=3)
+        left.rowconfigure(12, weight=1)
         actions = ttk.Frame(left)
-        actions.grid(row=10, column=0, sticky="ew", pady=4)
+        actions.grid(row=13, column=0, sticky="ew", pady=4)
         self.preview_btn = ttk.Button(actions, text=self.t("設定を試運転", "Offline preview"), command=self._preview)
         self.preview_btn.pack(side="left")
         self.fetch_btn = ttk.Button(actions, text=self.t("データを取得", "Fetch GET"), command=self._fetch)
         self.fetch_btn.pack(side="left", padx=5)
         files = ttk.Frame(left)
-        files.grid(row=11, column=0, sticky="w", pady=(5, 0))
+        files.grid(row=14, column=0, sticky="w", pady=(5, 0))
         ttk.Button(files, text=self.t("テンプレ保存", "Save template"), command=self._save_template).pack(side="left")
         ttk.Button(files, text=self.t("テンプレ読込", "Load template"), command=self._load_template).pack(side="left", padx=6)
         ttk.Label(left, text=self.t(
@@ -116,7 +116,7 @@ class ApiDataExplorerPanel(ttk.Frame):
             "この画面の取得は手動です。旧定期実行は別タブです。",
             "Preview is offline. Fetch sends explicit GET only, without retries.\n"
             "This view fetches manually; legacy scheduling stays in its own tab."),
-            wraplength=360).grid(row=12, column=0, sticky="w", pady=(8, 0))
+            wraplength=360).grid(row=15, column=0, sticky="w", pady=(8, 0))
 
         ttk.Label(right, text=self.t(
             "取得後、APIごとに結果を表示します。数値はExcel内でも数値、文字列は文字列として保持。",
@@ -147,7 +147,8 @@ class ApiDataExplorerPanel(ttk.Frame):
 
     @staticmethod
     def _label_entry(parent, line: int, label: str, variable: tk.StringVar) -> None:
-        ttk.Label(parent, text=label).grid(row=line * 2 + 9, column=0, sticky="w")
+        ttk.Label(parent, text=label).grid(row=line, column=0, sticky="w")
+        ttk.Entry(parent, textvariable=variable).grid(row=line + 1, column=0, sticky="ew", pady=(0, 4))
 
     def _show_source(self, index: int) -> None:
         source = self.sources[index]
