@@ -1,6 +1,7 @@
 """Bilingual split-pane GUI for manual JSON API fetch and local data exports."""
 from __future__ import annotations
 
+import hashlib
 import json
 import queue
 import threading
@@ -83,7 +84,7 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.secret_var = tk.StringVar()
 
         self._label_entry(left, 2, self.t("接続名", "Source name"), self.name_var)
-        self._label_entry(left, 3, self.t("HTTPS API URL (GETのみ)", "HTTPS API URL (GET only)"), self.url_var)
+        self._label_entry(left, 4, self.t("HTTPS API URL (GETのみ)", "HTTPS API URL (GET only)"), self.url_var)
         ttk.Label(left, text=self.t(
             "秘密鍵はURLに入れないでください。必要なら下の認証ヘッダーを利用します。",
             "Never put API keys in URLs. Use the optional authentication header."),
@@ -205,7 +206,10 @@ class ApiDataExplorerPanel(ttk.Frame):
 
     def _current_revision(self) -> str:
         self._sync_source()
-        return fingerprint(self.sources)
+        # Include in-memory auth values in the preview gate without storing them.
+        base = fingerprint(self.sources)
+        secrets = json.dumps([self.tokens.get(i, "") for i in range(len(self.sources))])
+        return hashlib.sha256((base + secrets).encode("utf-8")).hexdigest()
 
     def _preview(self) -> None:
         if self.busy:
