@@ -110,6 +110,41 @@ class JobWindow(ttk.Frame):
         except (ConfigurationError, OSError, ValueError) as exc:
             messagebox.showerror('Cannot save', str(exc))
 
+    def _saved_config(self) -> Path:
+        if self.saved_path is None or not self.saved_path.is_file():
+            raise TaskError('Save the job settings to a new JSON file first')
+        try:
+            current = self._config()
+            saved = json.loads(self.saved_path.read_text(encoding='utf-8'))
+        except (ConfigurationError, OSError, ValueError) as exc:
+            raise TaskError('Job settings are invalid') from exc
+        if current != saved:
+            raise TaskError('Settings have changed; save to a new file before registering')
+        return self.saved_path
+
+    def install_windows(self):
+        try:
+            path = self._saved_config()
+            if not messagebox.askyesno('Install daily task',
+                                       'Register a daily Windows task for the saved job? '
+                                       'It runs when this Windows user is signed in.'):
+                return
+            name = register(path)
+            self.status.set('Registered Windows task: ' + name)
+        except (TaskError, OSError, ValueError) as exc:
+            messagebox.showerror('Task not installed', str(exc))
+
+    def remove_windows(self):
+        try:
+            path = self._saved_config()
+            if not messagebox.askyesno('Remove daily task',
+                                       'Remove the daily Windows task for this job?'):
+                return
+            name = unregister(path)
+            self.status.set('Removed Windows task: ' + name)
+        except (TaskError, OSError, ValueError) as exc:
+            messagebox.showerror('Task not removed', str(exc))
+
     def _report(self, success: bool, action: str, detail: str):
         self.status.set(action + ': ' + ('complete' if success else 'failed') + ' — ' + detail)
         if not success:
