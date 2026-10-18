@@ -129,7 +129,8 @@ class ScheduledRunner:
 
     def log(self, event: dict[str, Any]) -> None:
         row = {"ts": datetime.now().astimezone().isoformat(), **event}
-        print(json.dumps(row, ensure_ascii=False))
+        if sys.stdout is not None:
+            print(json.dumps(row, ensure_ascii=False))
         if self.dry_run:
             return
         with self.log_path.open("a", encoding="utf-8") as fh:
@@ -300,8 +301,9 @@ class ScheduledRunner:
         self._request(job)
         self.log({"event": "job_ok", "job": job.get("name")})
 
-    def run_due(self) -> None:
+    def run_due(self) -> int:
         now = datetime.now().astimezone()
+        failures = 0
         for job in self.jobs:
             if job.get("enabled", True) is False:
                 continue
@@ -314,6 +316,7 @@ class ScheduledRunner:
             try:
                 self.run_job(job)
             except (RunnerError, OSError, ValueError) as exc:
+                failures += 1
                 self._finish_run(run_key, success=False, error=type(exc).__name__,
                                  uncertain=not read_only)
                 self.log({"event": "scheduled_job_uncertain" if not read_only else "scheduled_job_failed",
@@ -321,6 +324,7 @@ class ScheduledRunner:
                           "auto_retry": read_only})
                 continue
             self._finish_run(run_key, success=True)
+        return failures
 
     def run_all_once(self) -> None:
         for job in self.jobs:
