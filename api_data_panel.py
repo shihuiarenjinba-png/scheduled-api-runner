@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from api_data_explorer import (
     ExplorerError, extract_rows, fetch_json, fingerprint, load_template,
-    save_raw_json, save_template, save_text, save_xlsx, validate_sources, validate_url,
+    save_raw_json, save_template, save_text, save_xlsx, suggest_fields, validate_sources, validate_url,
 )
 
 
@@ -123,9 +123,14 @@ class ApiDataExplorerPanel(ttk.Frame):
             "取得後、APIごとに結果を表示します。数値はExcel内でも数値、文字列は文字列として保持。",
             "Results appear per API; numbers stay numeric in Excel, text stays text."),
             wraplength=530).grid(row=0, column=0, sticky="w")
-        self.result_source = ttk.Combobox(right, state="readonly")
-        self.result_source.grid(row=1, column=0, sticky="ew", pady=5)
+        selector = ttk.Frame(right)
+        selector.grid(row=1, column=0, sticky="ew", pady=5)
+        selector.columnconfigure(0, weight=1)
+        self.result_source = ttk.Combobox(selector, state="readonly")
+        self.result_source.grid(row=0, column=0, sticky="ew")
         self.result_source.bind("<<ComboboxSelected>>", self._show_result)
+        ttk.Button(selector, text=self.t("項目候補を左へ", "Suggest fields →"),
+                   command=self._suggest_from_json).grid(row=0, column=1, padx=(5, 0))
         self.table = ttk.Treeview(right, show="headings", height=10)
         self.table.grid(row=2, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(right, orient="horizontal", command=self.table.xview)
@@ -267,7 +272,8 @@ class ApiDataExplorerPanel(ttk.Frame):
                 try:
                     raw = fetch_json(source["url"], source["header_name"], tokens.get(index, ""))
                     fields, rows = extract_rows(raw, source["fields"])
-                    successes.append({"name": source["name"], "fields": fields, "rows": rows, "raw": raw})
+                    successes.append({"source_index": index, "name": source["name"],
+                                      "fields": fields, "rows": rows, "raw": raw})
                 except Exception as exc:
                     failures.append(f"{source['name']}: {type(exc).__name__}")
             self.messages.put((revision, successes, failures))
@@ -332,6 +338,38 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.raw_view.configure(state="normal")
         self.raw_view.insert("1.0", json.dumps(result["raw"], ensure_ascii=False, indent=2)[:30_000])
         self.raw_view.configure(state="disabled")
+
+    def _suggest_from_json(self) -> None:
+        if self.busy or not self.results:
+            return
+        index = self.result_source.current()
+        if not 0 <= index < len(self.results):
+            return
+        result = self.results[index]
+        proposals = suggest_fields(result["raw"])
+        if not proposals:
+            messagebox.showinfo(self.t("項目候補なし", "No candidates"),
+                                self.t("自動候補がありません。JSONを見ながら手入力してください。",
+                                       "No simple fields found; inspect JSON and enter paths."),
+                                parent=self)
+            return
+        if not messagebox.askyesno(self.t("取得項目の置換", "Replace field selection"),
+                                   self.t(f"{len(proposals)}項目の候補を左側へ入力します。現在の項目指定は置き換えられます。",
+                                          f"Replace current paths with {len(proposals)} suggested fields?"),
+                                   parent=self):
+            return
+        self._sync_source()
+        self._show_source(result["source_index"])
+        self.fields_editor.delete("1.0", "end")
+        self.fields_editor.insert("1.0", "\n".join(proposals))
+        self._sync_source()
+        self.preview_revision = None
+        self.result_revision = None
+        self.results = []
+        self.result_source.configure(values=[])
+        self._clear_result()
+        self.status.set(self.t("候補を入力しました。必要な項目だけ残して試運転してください。",
+                               "Candidates inserted. Choose fields and preview again."))
 
     def _export(self, mode: str) -> None:
         if self.busy or not self.results:
