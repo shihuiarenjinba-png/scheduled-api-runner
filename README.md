@@ -23,3 +23,9 @@ python scheduled_api_runner.py jobs.example.json
 ```
 
 Google OAuthは別Connectorとして追加し、Refresh Token等を設定JSONへ直書きしない設計にします。
+
+## Daily CSV desktop flow (improvement branch)
+
+Run `python api_job_gui.py` to set an approved HTTPS JSON source, select an **existing** CSV, choose fields and an explicit same-date policy, then validate/save/run. Saving creates a new JSON file; it never silently overwrites an existing configuration. Use **Install Windows daily task** only after saving and explicitly confirming. This per-user Windows Task Scheduler task calls `scheduled_api_runner.py --once` at the configured local time when the user is signed in. Remove the task from the GUI before changing installations or job IDs. The original in-window Start/Stop control still stops when the window closes. Python, the runner script, environment variables and the saved JSON must remain available at the registered paths. No direct .xlsx update or unattended signed-out service is claimed.
+
+Run `python -m unittest discover -s tests -v` and inspect the actual Windows task before sale. GitHub Actions on this private repo have previously failed before any steps execute; a failed runner-allocation job is not a test verdict. The separately evolving `feat/api-dated-series-writer-20261018` branch has a richer desktop implementation: compare and integrate deliberately before choosing the release candidate. Store submission: **HOLD**.
