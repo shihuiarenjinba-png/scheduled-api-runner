@@ -45,3 +45,13 @@ Screenshots must be genuine program windows with placeholder/test-only data; no 
 - [ ] Full QA and explicit owner approval before pressing **Submit for certification**
 
 **This copy is prepared documentation only, not evidence of Microsoft Store acceptance.**
+
+
+
+## 次期バージョン候補：API時系列取得（検証前・販売文面未承認）
+
+**日本語の訴求案：** 許可したHTTPS GET APIから必要なJSON項目と観測日付を抽出し、既存のCSV履歴へ1日1行ずつ追加するWindowsツール。同じ日付を重複保存せず、更新前の独立したバックアップを残します。JSON項目の手動プレビュー・設定テンプレート、任意のWindowsタスクスケジューラ登録を開発中です。
+
+**English draft:** Collect selected fields and observation dates from user-approved HTTPS GET JSON APIs. Keep a dated CSV history, skip duplicate dates by default, and create an independent backup before updating an existing file. Optional user-approved Windows Task Scheduler registration is under verification.
+
+**Limitations to disclose:** No generic web scraping, third-party API keys included, hosted/cloud acquisition, unlimited API quotas, automatic OAuth, direct modification of existing .xlsx workbooks or guaranteed catch-up when PC is off. Windows task works only while signed in and config is unchanged. Existing JSON scheduler advanced mutating methods require separate safety warnings. These features are **development-only until exact-commit CI and Windows API/CSV acceptance pass**.
