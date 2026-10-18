@@ -147,6 +147,28 @@ class CsvUpdateTests(unittest.TestCase):
             runner.run_all_once()
         self.assertEqual(len(read_csv(self.root / "sales.csv")), 1)
 
+    def test_daily_schedule_catches_up_once_after_configured_time(self):
+        cfg = make_get_job(root_dir=str(self.root), name="Daily Sales",
+                           url="https://example.com/sales", daily_at="09:00")
+        runner = ScheduledRunner(cfg, dry_run=True)
+        job = cfg["jobs"][0]
+        self.assertIsNone(runner._schedule_key(job, datetime.fromisoformat(
+            "2026-10-18T08:59:00+09:00")))
+        at_time = runner._schedule_key(job, datetime.fromisoformat(
+            "2026-10-18T09:00:00+09:00"))
+        after = runner._schedule_key(job, datetime.fromisoformat(
+            "2026-10-18T18:45:00+09:00"))
+        self.assertEqual(at_time, after)
+
+    def test_daily_schedule_invalid_non_padded_clock_rejected(self):
+        cfg = make_get_job(root_dir=str(self.root), name="Daily Sales",
+                           url="https://example.com/sales", daily_at="09:00")
+        job = cfg["jobs"][0]
+        job["schedule"]["at"] = "9:00"
+        runner = ScheduledRunner(cfg, dry_run=True)
+        with self.assertRaises(RunnerError):
+            runner._schedule_key(job, NOW)
+
     def test_non_get_writer_rejected_without_side_effects(self):
         cfg = make_get_job(root_dir=str(self.root), name="Write",
                            url="https://example.com/write", daily_at="09:00")
