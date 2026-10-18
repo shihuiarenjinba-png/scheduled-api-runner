@@ -13,9 +13,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from daily_csv_store import DailyStoreError, update_daily_csv
+
 
 class RunnerError(RuntimeError):
     pass
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
 
 
 def resolve_env(value: Any) -> Any:
@@ -82,6 +89,12 @@ class ScheduledRunner:
         except sqlite3.IntegrityError:
             return False
 
+    def _unclaim(self, run_key: str) -> None:
+        if self.dry_run:
+            return
+        with sqlite3.connect(self.state_db) as con:
+            con.execute("DELETE FROM run_keys WHERE run_key = ?", (run_key,))
+
     def _schedule_key(self, job: dict[str, Any], now: datetime) -> str | None:
         schedule = job.get("schedule", {})
         schedule_type = schedule.get("type")
@@ -108,10 +121,20 @@ class ScheduledRunner:
             raise RunnerError("Only HTTPS URLs are allowed")
         if host not in self.allowed_hosts:
             raise RunnerError(f"Host is not allowed: {host}")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise RunnerError("URL credentials and fragments are not supported")
+        for key in urllib.parse.parse_qs(parsed.query):
+            if key.lower() in {'access_token', 'api_key', 'password', 'secret', 'auth_token'}:
+                raise RunnerError('Sensitive query credentials are not permitted')
 
         method = str(request_cfg.get("method", "GET")).upper()
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise RunnerError(f"Unsupported HTTP method: {method}")
+        persist = job.get('persist')
+        if persist is not None and method != 'GET':
+            raise RunnerError('Updating an existing CSV requires HTTPS GET and JSON')
+        if persist is not None and not isinstance(persist, dict):
+            raise RunnerError('persist must be a JSON object')
         if self.dry_run:
             self.log({"event": "dry_run_request", "job": job.get("name"), "method": method, "host": host})
             return
@@ -126,16 +149,31 @@ class ScheduledRunner:
         retry_wait = max(float(job.get("retry_wait_seconds", 2)), 0.0)
 
         last_error: Exception | None = None
+        opener = urllib.request.build_opener(NoRedirect)
         for attempt in range(retries + 1):
             try:
                 req = urllib.request.Request(url, data=data, headers=headers, method=method)
-                with urllib.request.urlopen(req, timeout=timeout) as response:
-                    body = response.read(1_000_000)
-                    self.log({"event": "request_ok", "job": job.get("name"), "status": response.status, "bytes": len(body)})
-                    return
+                with opener.open(req, timeout=timeout) as response:
+                    body = response.read(1_000_001)
+                    if len(body) > 1_000_000:
+                        raise RunnerError("JSON response exceeds supported 1 MiB limit")
+                    http_status = response.status
+                if persist is not None:
+                    try:
+                        payload = json.loads(body.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        raise RunnerError("Response is not valid UTF-8 JSON") from exc
+                    update = update_daily_csv(self.root, payload, persist)
+                    self.log({"event": "daily_csv_updated", "job": job.get("name"),
+                              "operation": update["status"], "date": update["date"],
+                              "before_sha256": update["before_sha256"],
+                              "after_sha256": update["after_sha256"]})
+                self.log({"event": "request_ok", "job": job.get("name"), "status": http_status, "bytes": len(body)})
+                return
             except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
                 last_error = exc
-                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1, "error": str(exc)})
+                self.log({"event": "request_error", "job": job.get("name"), "attempt": attempt + 1,
+                          "error_type": type(exc).__name__})
                 if attempt < retries:
                     time.sleep(retry_wait)
         raise RunnerError(f"Request failed after retries: {last_error}")
@@ -154,7 +192,11 @@ class ScheduledRunner:
                 continue
             run_key = self._schedule_key(job, now)
             if run_key and self._claim(run_key):
-                self.run_job(job)
+                try:
+                    self.run_job(job)
+                except Exception:
+                    self._unclaim(run_key)
+                    raise
 
     def run_all_once(self) -> None:
         for job in self.jobs:
