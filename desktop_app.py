@@ -142,10 +142,10 @@ class ScheduledApiDesktop:
         banner.pack(fill="x", pady=(0, 10))
         ttk.Label(banner, text=self.t("定期API実行とは？", "What does Scheduled API Runner do?"),
                   font=("Segoe UI", 18, "bold")).pack(side="left")
-        guide_lang = ttk.Combobox(banner, textvariable=self.language_var if hasattr(self, "language_var")
-                                   else tk.StringVar(value="日本語" if self.lang == "ja" else "English"),
-                                   values=("日本語", "English"), state="readonly", width=10)
-        # Use the same controlled language selection as the advanced view.
+        guide_lang = ttk.Combobox(
+            banner, values=("日本語", "English"), state="readonly", width=10
+        )
+        guide_lang.set("English" if self.lang == "en" else "日本語")
         self.guide_language = guide_lang
         guide_lang.pack(side="right")
         guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
