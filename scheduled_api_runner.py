@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -26,6 +27,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def resolve_env(value: Any) -> Any:
+    if isinstance(value, str) and value.startswith('Bearer $' + '{ENV:') and value.endswith('}'):
+        name = value[len('Bearer $' + '{ENV:'):-1]
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', name):
+            raise RunnerError('Invalid authentication environment variable')
+        result = os.getenv(name)
+        if result is None or '\r' in result or '\n' in result:
+            raise RunnerError('Missing or invalid authentication environment variable')
+        return 'Bearer ' + result
     if isinstance(value, str) and value.startswith("${ENV:") and value.endswith("}"):
         name = value[6:-1]
         result = os.getenv(name)
