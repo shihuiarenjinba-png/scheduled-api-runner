@@ -186,7 +186,9 @@ class ScheduledRunner:
         if schedule_type == "daily":
             at = str(schedule.get("at", ""))
             try:
-                datetime.strptime(at, "%H:%M")
+                parsed_time = datetime.strptime(at, "%H:%M")
+                if parsed_time.strftime("%H:%M") != at:
+                    raise ValueError("daily time must use zero-padded HH:MM")
             except ValueError as exc:
                 raise RunnerError(f"Invalid daily time for {name}: {at}") from exc
             # Catch up later on the same local calendar day if the PC/app
