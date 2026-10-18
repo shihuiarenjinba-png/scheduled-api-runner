@@ -28,6 +28,8 @@ def https_host(url: str) -> str:
         raise GuidedConfigError("Invalid URL / URLが正しくありません") from exc
     if parts.scheme != "https" or not host or parts.username or parts.password or parts.fragment:
         raise GuidedConfigError("Use HTTPS without credentials or fragments / HTTPSで認証情報や#を含めないでください")
+    if parts.query:
+        raise GuidedConfigError("Remove URL query parameters; use advanced setup for query strings")
     if port is not None and port != 443:
         raise GuidedConfigError("For the guided setup, use standard HTTPS port 443")
     if host.endswith(".local") or host in {"localhost"}:
