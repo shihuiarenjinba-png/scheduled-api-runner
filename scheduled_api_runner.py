@@ -189,7 +189,10 @@ class ScheduledRunner:
                 datetime.strptime(at, "%H:%M")
             except ValueError as exc:
                 raise RunnerError(f"Invalid daily time for {name}: {at}") from exc
-            if now.strftime("%H:%M") != at:
+            # Catch up later on the same local calendar day if the PC/app
+            # was not running at the exact minute. The SQLite daily key still
+            # prevents a duplicate scheduled slot after restart.
+            if now.strftime("%H:%M") < at:
                 return None
             return f"{name}|daily|{now.strftime('%Y-%m-%d')}|{at}"
         if schedule_type == "interval":
