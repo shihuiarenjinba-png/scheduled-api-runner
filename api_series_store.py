@@ -143,13 +143,23 @@ def _existing_rows(path: Path, required: list[str]) -> tuple[list[str], list[dic
         raise SeriesError("Existing CSV columns do not match configured output fields")
     if any(None in row for row in rows):
         raise SeriesError("Existing CSV contains malformed extra columns")
+    # DictReader uses None for missing fields. Rewriting such a file would
+    # silently turn corrupted records into empty cells; fail closed instead.
+    if any(any(value is None for value in row.values()) for row in rows):
+        raise SeriesError("Existing CSV contains incomplete rows; no update performed")
+    seen_dates: set[str] = set()
     for row in rows:
-        if row.get("date"):
-            try:
-                if date.fromisoformat(row["date"]).isoformat() != row["date"]:
-                    raise ValueError()
-            except ValueError:
-                raise SeriesError("Existing CSV contains an invalid date; no update performed") from None
+        day = row.get("date")
+        if not day:
+            raise SeriesError("Existing CSV contains a missing date; no update performed")
+        try:
+            if date.fromisoformat(day).isoformat() != day:
+                raise ValueError()
+        except ValueError:
+            raise SeriesError("Existing CSV contains an invalid date; no update performed") from None
+        if day in seen_dates:
+            raise SeriesError("Existing CSV contains duplicate historical dates; no update performed")
+        seen_dates.add(day)
     return headers, rows, False
 
 
