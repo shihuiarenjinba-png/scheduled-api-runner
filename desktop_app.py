@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
 from guided_config import GuidedConfigError, make_get_job, save_new_config
+from api_data_panel import ApiDataExplorerPanel
 from ui_language import load_language, save_language
 
 APP_ID = "scheduled-api-runner"
@@ -47,14 +48,21 @@ class ScheduledApiDesktop:
         return en if self.lang == "en" else ja
 
     def _build(self) -> None:
+        saved_explorer = (self.explorer.sources_snapshot()
+                          if getattr(self, 'explorer', None) is not None else None)
         for child in self.root.winfo_children():
             child.destroy()
         self.root.title(self.t("定期API実行", "Scheduled API Runner"))
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True)
+        self.explorer_tab = ttk.Frame(self.notebook)
         self.guide_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.explorer_tab, text=self.t("APIデータ取得・保存", "API Data Explorer"))
+        self.explorer = ApiDataExplorerPanel(
+            self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer)
+        self.explorer.pack(fill='both', expand=True)
         self.notebook.add(self.guide_tab, text=self.t("はじめに・新規設定", "Start here / New setup"))
         self.notebook.add(self.advanced_tab, text=self.t("詳細・試運転・実行", "Advanced / Preview / Run"))
         self._build_guide()
@@ -189,7 +197,7 @@ class ScheduledApiDesktop:
         ), wraplength=870, justify="left").pack(anchor="w", pady=(14, 0))
 
     def _guide_language_changed(self, _event=None) -> None:
-        if self._once_running or self.monitor_thread is not None:
+        if self._once_running or self.monitor_thread is not None or self.explorer.busy:
             self.guide_language.set("English" if self.lang == "en" else "日本語")
             return
         self.lang = "en" if self.guide_language.get() == "English" else "ja"
@@ -235,7 +243,7 @@ class ScheduledApiDesktop:
                                "Saved. Next: Dry Run (no API request has been sent)."))
 
     def _language_changed(self, _event=None) -> None:
-        if self._once_running or self.monitor_thread is not None:
+        if self._once_running or self.monitor_thread is not None or self.explorer.busy:
             self.language_var.set("English" if self.lang == "en" else "日本語")
             return
         was_advanced = self.notebook.select() == str(self.advanced_tab)
@@ -485,6 +493,7 @@ class ScheduledApiDesktop:
 def self_test() -> int:
     """Verify packaged imports, config generation and no-network Dry Run."""
     import tempfile
+    from api_data_explorer import extract_rows, save_xlsx, validate_sources
     with tempfile.TemporaryDirectory(prefix="scheduled-api-self-test-") as d:
         test_config = make_get_job(
             root_dir=d, name="Self test GET",
@@ -495,6 +504,14 @@ def self_test() -> int:
         root = Path(d)
         if (root / ".state").exists() or (root / "logs").exists():
             raise RuntimeError("Dry Run unexpectedly wrote to filesystem")
+        validate_sources([{'name':'sample','url':'https://example.com/data',
+                           'fields':'total = data.total\nlabel = data.name','header_name':''}])
+        fields, rows = extract_rows({'data':{'total':42,'name':'test'}},
+                                    'total = data.total\nlabel = data.name')
+        if fields != ['total','label'] or rows != [{'total':42,'label':'test'}]:
+            raise RuntimeError('JSON field extraction self-test failed')
+        save_xlsx(root / 'explorer-selftest.xlsx',
+                  [{'name':'sample','fields':fields,'rows':rows,'raw':{'data':42}}])
     return 0
 
 def main() -> None:
