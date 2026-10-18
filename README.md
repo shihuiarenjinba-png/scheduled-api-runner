@@ -90,3 +90,22 @@ select a JSON file → Validate/Dry Run → confirm once or start scheduler.
   a user-directed operation and must not be advertised as guarded by the GUI.
 - **GitHub Actions is blocked before test steps** on this branch; see
   `QA_HANDOFF_20261018.md`. Do not claim PASS or sell this code.
+
+## 起動時に分かる画面 / First-run guided GUI (draft 2026-10-18)
+
+Windows用GUIは起動すると **「はじめに・新規設定 / Start here」** を表示します。
+
+- **何をする商品か：** Windows上で指定したHTTPS APIへ、指定時刻にリクエストを送るツール。クラウドサーバー不要。定期実行にはアプリを開いたままにする必要があります。
+- **初心者向け設定：** 作業用フォルダー、ジョブ名、HTTPS URL、毎日の時刻を入力 → 新規JSON保存 → 詳細画面でDry Run → 明示的承認 → 1回実行または定期実行。
+- **この画面で作れるのはGETのみ：** POST/PUT/PATCH/DELETE、認証ヘッダー、複数ジョブなどは既存の詳細JSONが必要です。無い機能をあるように販売説明しません。
+- **保存時の安全性：** JSONを保存するだけではAPIを送信しません。既存JSONは上書きしません。秘密値入りURL、IPアドレス、ローカルホスト、非HTTPS、非標準ポートを初心者フォームで拒否します。
+- **試運転：** 通信しない設定検証です。サーバーの応答を予測・再現するものではありません。設定が変わったら試運転からやり直し。
+- **販売状況：** CI/実機/MSIX/Store審査はHOLD。コード担当は初心者の操作体験をWindows実機で検証してください。
+
+### Japanese/English
+The opening page explains the product purpose, includes a GET-only daily-check
+wizard, saves a new JSON without making network requests, then navigates to
+the advanced view for Dry Run and deliberate execution. Advanced requests
+still require JSON editing; the beginner wizard does not support arbitrary API
+configuration. Run `python -m unittest discover -s tests -v` on a verified
+Windows build and review `tests/test_guided_config.py`.
