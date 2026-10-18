@@ -17,7 +17,7 @@
 
 ## State of the app code (not the Store registration)
 
-A beginner GET setup form, manual JSON field explorer, dated CSV history output wizard, duplicate-date guard and optional Windows task controls are present on the development branch. These are not verified on real Windows yet; no successful private CI jobs or sale-ready MSIX.
+The draft branch includes a joined beginner workflow: manually inspect JSON fields, transfer selected scalar fields into a multiline daily CSV wizard, set optional API auth ENV references, preview, and register an opt-in Windows task. Source has not been Windows-verified; private Actions jobs still fail before steps, and the MSIX is the code operator's next stage.
 
 ## No-sales acceptance conditions
 
