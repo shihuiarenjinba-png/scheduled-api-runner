@@ -79,8 +79,9 @@ Product identity recorded at
   selected JSON paths, right-side result preview, and .xlsx/.txt/.json exports.
 - A template is a separate JSON format (schema_version: 1, sources), **not**
   a scheduler jobs JSON file. Auth header values stay in application memory.
-- This is NOT recurring scheduled export; the pre-existing scheduler remains
-  on a different tab with its previous functionality.
+- The manual Explorer itself remains a manual-only tab; a **separate new**
+  csv_update option now implements recurring dated CSV output for scheduled
+  GET jobs. Direct recurring .xlsx edit is NOT implemented.
 - All export targets use exclusive new-file publication: never overwrite old
   customer files. Treat failed hard-link publication as failure, not as consent
   to replace a destination.
@@ -91,3 +92,16 @@ Product identity recorded at
 - Complete Windows GUI and spreadsheet interoperability checks before sale.
 - The existing Store text still describes the prior feature set: reconcile
   with final tested behavior and request owner sign-off before publication.
+
+
+
+## 次期バージョン候補：API時系列取得（検証前・販売文面未承認）
+
+**日本語の訴求案：** 許可したHTTPS GET APIから必要なJSON項目と観測日付を抽出し、既存のCSV履歴へ1日1行ずつ追加するWindowsツール。同じ日付を重複保存せず、更新前の独立したバックアップを残します。JSON項目の手動プレビュー・設定テンプレート、任意のWindowsタスクスケジューラ登録を開発中です。
+
+**English draft:** Collect selected fields and observation dates from user-approved HTTPS GET JSON APIs. Keep a dated CSV history, skip duplicate dates by default, and create an independent backup before updating an existing file. Optional user-approved Windows Task Scheduler registration is under verification.
+
+**Limitations to disclose:** No generic web scraping, third-party API keys included, hosted/cloud acquisition, unlimited API quotas, automatic OAuth, direct modification of existing .xlsx workbooks or guaranteed catch-up when PC is off. Windows task works only while signed in and config is unchanged. Existing JSON scheduler advanced mutating methods require separate safety warnings. These features are **development-only until exact-commit CI and Windows API/CSV acceptance pass**.
+
+### New tests and operator controls
+Run tests/test_api_series_store.py, tests/test_windows_tasks.py and all prior suites on exact PR #4 head. Test Windows schtasks opt-in registration/unaltered-config pin, signed-in run, CSV schema/date, backup byte immutability, failure exit status, and controlled uninstall. GitHub private runner allocations remain blocked before steps; see docs/PRIVATE_CI_RUNNER_TRIAGE_20261018.md.
