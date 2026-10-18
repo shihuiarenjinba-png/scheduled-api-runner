@@ -11,7 +11,7 @@ from xml.etree import ElementTree as ET
 
 from api_data_explorer import (
     ExplorerError, extract_rows, fetch_json, fingerprint, load_template,
-    parse_fields, save_raw_json, save_template, save_text, save_xlsx,
+    parse_fields, save_raw_json, save_template, save_text, save_xlsx, suggest_fields,
     validate_sources, validate_url,
 )
 
@@ -49,6 +49,17 @@ class JsonExplorerTests(unittest.TestCase):
         fields, rows = extract_rows({"値": [{"金額": 15.25}]},
                                     "数値 = 値[0].金額")
         self.assertEqual(rows, [{"数値": 15.25}])
+
+    def test_suggest_fields_from_sample_and_reuse(self):
+        sample = {"orders": [{"id": 1, "amount": 15.5}],
+                  "created_at": "2026-10-18", "other": [{"name": "skip"}]}
+        suggestions = suggest_fields(sample)
+        self.assertIn("orders[*].id = orders[*].id", suggestions)
+        self.assertIn("orders[*].amount = orders[*].amount", suggestions)
+        self.assertIn("created_at = created_at", suggestions)
+        self.assertNotIn("other[*].name = other[*].name", suggestions)
+        fields, rows = extract_rows(sample, "\n".join(suggestions))
+        self.assertEqual(rows[0]["orders[*].amount"], 15.5)
 
     def test_reject_mixed_repeating_arrays_and_invalid_selectors(self):
         for text in ["Price = a[*].p\nName = b[*].n",
