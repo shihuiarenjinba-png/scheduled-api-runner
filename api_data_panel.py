@@ -27,9 +27,10 @@ class ApiDataExplorerPanel(ttk.Frame):
     requires approval for the exact currently visible form revision.
     """
 
-    def __init__(self, master, *, japanese: bool, initial_sources=None):
+    def __init__(self, master, *, japanese: bool, initial_sources=None, on_schedule_source=None):
         super().__init__(master)
         self.japanese = japanese
+        self.on_schedule_source = on_schedule_source
         self.sources = [dict(x) for x in (initial_sources or [_blank()])]
         self.tokens: dict[int, str] = {}  # ephemeral per-source credential
         self.active = 0
@@ -108,6 +109,13 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.preview_btn.pack(side="left")
         self.fetch_btn = ttk.Button(actions, text=self.t("データを取得", "Fetch GET"), command=self._fetch)
         self.fetch_btn.pack(side="left", padx=5)
+        if self.on_schedule_source is not None:
+            ttk.Button(
+                left,
+                text=self.t("このAPI設定を毎日CSV取得に引き継ぐ →",
+                            "Use this API for daily CSV →"),
+                command=self._apply_daily_source
+            ).grid(row=16, column=0, sticky="w", pady=(2, 6))
         files = ttk.Frame(left)
         files.grid(row=14, column=0, sticky="w", pady=(5, 0))
         ttk.Button(files, text=self.t("テンプレ保存", "Save template"), command=self._save_template).pack(side="left")
@@ -370,6 +378,21 @@ class ApiDataExplorerPanel(ttk.Frame):
         self._clear_result()
         self.status.set(self.t("候補を入力しました。必要な項目だけ残して試運転してください。",
                                "Candidates inserted. Choose fields and preview again."))
+
+    def _apply_daily_source(self) -> None:
+        if self.busy or self.on_schedule_source is None:
+            return
+        self._sync_source()
+        selected = dict(self.sources[self.active])
+        try:
+            # Validate just this source; customer may still be editing another.
+            validate_sources([selected])
+        except (ExplorerError, ValueError) as exc:
+            messagebox.showerror(self.t("API項目を確認", "Check API fields"),
+                                 str(exc), parent=self)
+            return
+        # Credentials must never be copied into the persistent job config.
+        self.on_schedule_source(selected)
 
     def _export(self, mode: str) -> None:
         if self.busy or not self.results:

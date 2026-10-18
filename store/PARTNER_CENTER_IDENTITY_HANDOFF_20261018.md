@@ -17,7 +17,7 @@
 
 ## State of the app code (not the Store registration)
 
-JSON-based desktop GUI, first-use instructions and dry-run guard added. Still no beginner form-based rule creation, verified Windows CI, or Store MSIX.
+The draft branch includes a joined beginner workflow: manually inspect JSON fields, transfer selected scalar fields into a multiline daily CSV wizard, set optional API auth ENV references, preview, and register an opt-in Windows task. Source has not been Windows-verified; private Actions jobs still fail before steps, and the MSIX is the code operator's next stage.
 
 ## No-sales acceptance conditions
 

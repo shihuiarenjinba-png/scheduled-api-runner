@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from api_series_store import SeriesError, update_series, validate_writer
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -66,6 +67,14 @@ class ScheduledRunner:
             if name in names:
                 raise RunnerError(f"Duplicate job name: {name}")
             names.add(name)
+            if 'csv_update' in job:
+                req = job.get('request', {})
+                if not isinstance(req, dict) or str(req.get('method', 'GET')).upper() != 'GET':
+                    raise RunnerError('csv_update only supports read-only GET jobs')
+                try:
+                    validate_writer(job['csv_update'], self.root)
+                except SeriesError as exc:
+                    raise RunnerError(f'Invalid csv_update settings: {exc}') from exc
         if not self.dry_run:
             self.root.mkdir(parents=True, exist_ok=True)
             self.state_db.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +129,8 @@ class ScheduledRunner:
 
     def log(self, event: dict[str, Any]) -> None:
         row = {"ts": datetime.now().astimezone().isoformat(), **event}
-        print(json.dumps(row, ensure_ascii=False))
+        if sys.stdout is not None:
+            print(json.dumps(row, ensure_ascii=False))
         if self.dry_run:
             return
         with self.log_path.open("a", encoding="utf-8") as fh:
@@ -177,10 +187,15 @@ class ScheduledRunner:
         if schedule_type == "daily":
             at = str(schedule.get("at", ""))
             try:
-                datetime.strptime(at, "%H:%M")
+                parsed_time = datetime.strptime(at, "%H:%M")
+                if parsed_time.strftime("%H:%M") != at:
+                    raise ValueError("daily time must use zero-padded HH:MM")
             except ValueError as exc:
                 raise RunnerError(f"Invalid daily time for {name}: {at}") from exc
-            if now.strftime("%H:%M") != at:
+            # Catch up later on the same local calendar day if the PC/app
+            # was not running at the exact minute. The SQLite daily key still
+            # prevents a duplicate scheduled slot after restart.
+            if now.strftime("%H:%M") < at:
                 return None
             return f"{name}|daily|{now.strftime('%Y-%m-%d')}|{at}"
         if schedule_type == "interval":
@@ -211,6 +226,8 @@ class ScheduledRunner:
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise RunnerError(f"Unsupported HTTP method: {method}")
         if self.dry_run:
+            if 'csv_update' in job:
+                validate_writer(job['csv_update'], self.root)
             self.log({"event": "dry_run_request", "job": job.get("name"), "method": method, "host": host})
             return
 
@@ -239,7 +256,25 @@ class ScheduledRunner:
                     final_host = (final.hostname or "").lower()
                     if final.scheme != "https" or final_host != host:
                         raise RunnerError("HTTP response URL changed unexpectedly")
-                    body = response.read(1_000_000)
+                    if not 200 <= response.status < 300:
+                        raise RunnerError('Non-success API HTTP status')
+                    export = job.get('csv_update')
+                    body = response.read(2_000_001 if export is not None else 1_000_000)
+                    if export is not None:
+                        if len(body) > 2_000_000:
+                            raise RunnerError('API JSON response exceeds 2 MB limit')
+                        try:
+                            payload = json.loads(body.decode('utf-8-sig'))
+                        except (UnicodeError, json.JSONDecodeError):
+                            raise RunnerError('API did not return valid UTF-8 JSON') from None
+                        if not isinstance(payload, (dict, list)):
+                            raise RunnerError('API JSON must be an object or array')
+                        status = update_series(self.root, export, payload, datetime.now().astimezone())
+                        # Deliberately do not log returned values, file paths or secrets.
+                        self.log({'event': 'daily_csv_update', 'job': job.get('name'),
+                                  'result': status['status'], 'date': status['date'],
+                                  'rows': status['rows'],
+                                  'backup_created': status.get('backup_created', False)})
                     self.log({"event": "request_ok", "job": job.get("name"), "status": response.status, "host": host, "bytes": len(body)})
                     return
             except urllib.error.HTTPError as exc:
@@ -266,8 +301,9 @@ class ScheduledRunner:
         self._request(job)
         self.log({"event": "job_ok", "job": job.get("name")})
 
-    def run_due(self) -> None:
+    def run_due(self) -> int:
         now = datetime.now().astimezone()
+        failures = 0
         for job in self.jobs:
             if job.get("enabled", True) is False:
                 continue
@@ -280,6 +316,7 @@ class ScheduledRunner:
             try:
                 self.run_job(job)
             except (RunnerError, OSError, ValueError) as exc:
+                failures += 1
                 self._finish_run(run_key, success=False, error=type(exc).__name__,
                                  uncertain=not read_only)
                 self.log({"event": "scheduled_job_uncertain" if not read_only else "scheduled_job_failed",
@@ -287,6 +324,7 @@ class ScheduledRunner:
                           "auto_retry": read_only})
                 continue
             self._finish_run(run_key, success=True)
+        return failures
 
     def run_all_once(self) -> None:
         for job in self.jobs:

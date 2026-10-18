@@ -10,6 +10,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
+from api_series_store import validate_writer, SeriesError
 
 
 class GuidedConfigError(ValueError):
@@ -77,6 +78,28 @@ def make_get_job(*, root_dir: str, name: str, url: str, daily_at: str) -> dict:
     }
 
 
+def add_daily_csv_output(config: dict, *, path: str, fields: str,
+                         date_path: str = "", on_duplicate: str = "skip") -> dict:
+    """Opt-in extension of an existing GET wizard configuration, no side effects."""
+    if on_duplicate not in {"skip", "replace"}:
+        raise GuidedConfigError("Choose skip or replace for a repeated date")
+    update = {"path": str(path).strip(), "fields": str(fields).strip(),
+              "on_duplicate": on_duplicate}
+    if str(date_path).strip():
+        update["date_path"] = str(date_path).strip()
+    else:
+        update["date_source"] = "run_local"
+    try:
+        validate_writer(update, Path(config["root_dir"]))
+    except SeriesError as exc:
+        raise GuidedConfigError(str(exc)) from exc
+    revised = dict(config)
+    jobs = [dict(job) for job in config["jobs"]]
+    jobs[0]["csv_update"] = update
+    revised["jobs"] = jobs
+    return revised
+
+
 def save_new_config(path: str | Path, config: dict) -> Path:
     destination = Path(path)
     # Exclusive creation avoids deleting or overwriting customer JSON.
@@ -84,3 +107,31 @@ def save_new_config(path: str | Path, config: dict) -> Path:
         json.dump(config, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
     return destination
+
+
+def add_auth_header_env(config: dict, *, header_name: str, env_name: str) -> dict:
+    """Add optional API auth without ever embedding raw secrets in saved JSON."""
+    header_name = str(header_name).strip()
+    env_name = str(env_name).strip()
+    if not header_name and not env_name:
+        return config
+    if not header_name or not env_name:
+        raise GuidedConfigError("Provide both API header name and environment variable")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,63}", header_name):
+        raise GuidedConfigError("Header name must contain letters, numbers and hyphens")
+    if header_name.lower() in {"host", "connection", "content-length", "cookie",
+                                "proxy-authorization", "transfer-encoding"}:
+        raise GuidedConfigError("Restricted HTTP header; choose an API authentication header")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", env_name):
+        raise GuidedConfigError("Environment variable name must be letters, numbers and underscores")
+    result = dict(config)
+    jobs = [dict(x) for x in config["jobs"]]
+    req = dict(jobs[0]["request"])
+    headers = dict(req.get("headers", {}))
+    if any(x.casefold() == header_name.casefold() for x in headers):
+        raise GuidedConfigError("The API header was already configured")
+    headers[header_name] = "$" + "{ENV:" + env_name + "}"
+    req["headers"] = headers
+    jobs[0]["request"] = req
+    result["jobs"] = jobs
+    return result

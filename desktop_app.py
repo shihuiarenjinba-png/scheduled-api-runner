@@ -11,8 +11,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
-from guided_config import GuidedConfigError, make_get_job, save_new_config
+from guided_config import GuidedConfigError, make_get_job, add_daily_csv_output, add_auth_header_env, save_new_config
 from api_data_panel import ApiDataExplorerPanel
+from scheduler_windows_tasks import (
+    WindowsTaskError, register_task, unregister_task, validate_dated_get_config, run_locked_config
+)
 from ui_language import load_language, save_language
 
 APP_ID = "scheduled-api-runner"
@@ -27,13 +30,20 @@ class ScheduledApiDesktop:
         self.root.minsize(900, 640)
         self.config_path = tk.StringVar()
         self.guide_root = tk.StringVar()
-        self.guide_name = tk.StringVar(value="Daily status check")
-        self.guide_url = tk.StringVar(value="https://example.com/status")
+        self.guide_name = tk.StringVar(value="Daily API data")
+        self.guide_url = tk.StringVar(value="https://example.com/api/data")
         self.guide_at = tk.StringVar(value="09:00")
+        self.guide_csv_enabled = tk.BooleanVar(value=True)
+        self.guide_csv_path = tk.StringVar(value="daily-sales.csv")
+        self.guide_csv_fields = tk.StringVar(value="sales = data.sales")
+        self.guide_csv_date_path = tk.StringVar(value="")
+        self.guide_auth_header = tk.StringVar(value="")
+        self.guide_auth_env = tk.StringVar(value="")
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
         self._once_running = False
+        self._task_busy = False
         self.preview_revision: str | None = None
         self.stop_event = threading.Event()
         self._build()
@@ -59,12 +69,13 @@ class ScheduledApiDesktop:
         self.explorer_tab = ttk.Frame(self.notebook)
         self.guide_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.explorer_tab, text=self.t("APIデータ取得・保存", "API Data Explorer"))
+        self.notebook.add(self.guide_tab, text=self.t("① 毎日CSV取得の設定", "1. Daily CSV setup"))
+        self.notebook.add(self.explorer_tab, text=self.t("② API項目を調べる", "2. Inspect API fields"))
+        self.notebook.add(self.advanced_tab, text=self.t("③ 試運転・実行", "3. Preview / Run"))
         self.explorer = ApiDataExplorerPanel(
-            self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer)
+            self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer,
+            on_schedule_source=self._use_explorer_source)
         self.explorer.pack(fill='both', expand=True)
-        self.notebook.add(self.guide_tab, text=self.t("はじめに・新規設定", "Start here / New setup"))
-        self.notebook.add(self.advanced_tab, text=self.t("詳細・試運転・実行", "Advanced / Preview / Run"))
         self._build_guide()
         outer = ttk.Frame(self.advanced_tab, padding=18)
         outer.pack(fill="both", expand=True)
@@ -128,6 +139,24 @@ class ScheduledApiDesktop:
             wraplength=410,
         ).pack(side="right")
 
+        task_box = ttk.LabelFrame(outer, text=self.t(
+            "Windowsの毎日自動実行（任意）", "Optional Windows daily task"), padding=8)
+        task_box.pack(fill="x", pady=(0, 9))
+        self.task_register_btn = ttk.Button(
+            task_box, text=self.t("Windowsタスクを登録", "Register daily Windows task"),
+            command=self._register_windows_task)
+        self.task_register_btn.pack(side="left", padx=(0, 8))
+        self.task_remove_btn = ttk.Button(
+            task_box, text=self.t("登録したタスクを削除", "Remove registered task"),
+            command=self._remove_windows_task)
+        self.task_remove_btn.pack(side="left", padx=(0, 8))
+        ttk.Label(task_box, text=self.t(
+            "毎日GET＋CSVのみ。ログオン中に実行。設定変更後は再登録。",
+            "GET+CSV only; runs while signed in. Re-register after config changes."),
+            wraplength=430).pack(side="left")
+        if self._task_busy:
+            self.task_register_btn.configure(state="disabled")
+            self.task_remove_btn.configure(state="disabled")
         logbox = ttk.LabelFrame(outer, text=self.t("実行表示", "Audit view"), padding=8)
         logbox.pack(fill="both", expand=True)
         self.log = tk.Text(logbox, wrap="word", height=13, state="disabled", font=("Consolas", 9))
@@ -144,8 +173,18 @@ class ScheduledApiDesktop:
             self.dry_btn.configure(state="disabled")
 
     def _build_guide(self) -> None:
-        pane = ttk.Frame(self.guide_tab, padding=20)
-        pane.pack(fill="both", expand=True)
+        # Long onboarding form remains usable on laptop displays and at 150% DPI.
+        canvas = tk.Canvas(self.guide_tab, highlightthickness=0)
+        scroll = ttk.Scrollbar(self.guide_tab, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        pane = ttk.Frame(canvas, padding=20)
+        form_window = canvas.create_window((0, 0), window=pane, anchor="nw")
+        pane.bind("<Configure>", lambda _event: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(
+            form_window, width=event.width))
         banner = ttk.Frame(pane)
         banner.pack(fill="x", pady=(0, 10))
         ttk.Label(banner, text=self.t("定期API実行とは？", "What does Scheduled API Runner do?"),
@@ -158,14 +197,14 @@ class ScheduledApiDesktop:
         guide_lang.pack(side="right")
         guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
         ttk.Label(pane, text=self.t(
-            "決めた時刻に、指定したHTTPS APIへリクエストを送るWindowsアプリです。\n"
-            "例えば、自社APIの状態確認を毎朝9時に実行できます。クラウドサーバー不要。\n"
-            "まずは安全なGETリクエストを1件だけ作ります。POSTなどの更新操作は詳細設定で扱います。",
-            "Send requests to a chosen HTTPS API on a schedule from your Windows PC.\n"
-            "Example: check an API status at 9 AM every day. No cloud server required.\n"
-            "This guided setup creates just one GET request. Mutating requests require advanced setup.",
+            "APIから今日の数値を取得し、昨日までのCSVデータに日付ごとに追記します。\n"
+            "使い方：①保存先・API URL・JSON項目・時刻を指定 → ②必要ならAPI項目を調べる "
+            "→ ③設定を保存 → ④試運転 → ⑤承認して実行またはWindowsタスク登録。",
+            "Fetch daily API values and append one dated row to your existing CSV history.\n"
+            "1. Set destination, HTTPS URL, JSON fields and time. 2. Inspect API fields if needed. "
+            "3. Save. 4. Dry Run. 5. Approve live execution or optional Windows task.",
         ), wraplength=880, justify="left").pack(anchor="w", pady=(0, 16))
-        group = ttk.LabelFrame(pane, text=self.t("① 実行したい内容を入力", "1. Set up a status check"), padding=12)
+        group = ttk.LabelFrame(pane, text=self.t("① API取得とCSV履歴を設定", "1. API and CSV history setup"), padding=12)
         group.pack(fill="x", pady=(0, 12))
         group.columnconfigure(1, weight=1)
         fields = [
@@ -179,11 +218,50 @@ class ScheduledApiDesktop:
             ttk.Entry(group, textvariable=variable).grid(row=i, column=1, sticky="ew", pady=6)
         ttk.Button(group, text=self.t("選択…", "Browse…"), command=self._choose_guide_root).grid(
             row=0, column=2, padx=(8, 0))
+        ttk.Checkbutton(group, variable=self.guide_csv_enabled, text=self.t(
+            "取得したJSONの値を日付付きCSVに追記（初期ON）",
+            "Append extracted API values into dated CSV (on by default)")).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(7, 2))
+        ttk.Label(group, text=self.t(
+            "CSVファイル名（例 daily-sales.csv）", "CSV filename (e.g. daily-sales.csv)")
+        ).grid(row=5, column=0, sticky="w", padx=(0, 10), pady=4)
+        ttk.Entry(group, textvariable=self.guide_csv_path).grid(
+            row=5, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "JSON項目（1行に1項目。例 sales = data.sales）",
+            "JSON fields (one per line, e.g. sales = data.sales)")
+        ).grid(row=6, column=0, sticky="nw", padx=(0, 10), pady=4)
+        self.guide_fields_editor = tk.Text(group, height=4, wrap="none")
+        self.guide_fields_editor.insert("1.0", self.guide_csv_fields.get())
+        self.guide_fields_editor.grid(row=6, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "APIの日付項目（任意）", "API date path (optional)")
+        ).grid(row=7, column=0, sticky="w", padx=(0, 10), pady=4)
+        ttk.Entry(group, textvariable=self.guide_csv_date_path).grid(
+            row=7, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "API内に日付がある場合は data.date などを指定。空欄ならPCの実行日を記録。"
+            "同じ日付はスキップ。更新時は元CSVのバックアップを保持します。",
+            "Set e.g. data.date when the API includes a date; otherwise use PC run date. "
+            "Duplicate dates are skipped and original CSV is backed up before updates."),
+            wraplength=780).grid(row=8, column=0, columnspan=3, sticky="w", pady=(2, 6))
+        ttk.Label(group, text=self.t(
+            "認証ヘッダー名（任意、例 X-API-Key）",
+            "Authentication header (optional, e.g. X-API-Key)")).grid(row=9, column=0, sticky="w", pady=4)
+        ttk.Entry(group, textvariable=self.guide_auth_header).grid(row=9, column=1, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "Windows環境変数の名前（例 MY_SALES_API_KEY）",
+            "Windows environment variable name (e.g. MY_SALES_API_KEY)")).grid(row=10, column=0, sticky="w", pady=4)
+        ttk.Entry(group, textvariable=self.guide_auth_env).grid(row=10, column=1, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "秘密のAPIキー自体は入力しません。利用者のWindows環境変数を事前に設定してください。",
+            "Do not paste an API key here. Set the variable in your Windows account first."),
+            wraplength=820).grid(row=11, column=0, columnspan=3, sticky="w", pady=5)
         ttk.Label(pane, text=self.t(
-            "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
-            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。定期実行中はアプリを開いたままにしてください。",
-            "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
-            "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
+            "② 設定を新規保存するだけではAPIへの通信は発生しません.保存後の画面で試運転を実行してください。\n"
+            "③ 試運転後に実行を承認します。アプリを閉じたい場合は、ログオン中のWindowsタスクとして登録できます。",
+            "2. Saving a config sends no requests. Complete Dry Run on the next tab.\n"
+            "3. Approve live execution, or register a daily Windows task to run while signed in.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
         ttk.Button(pane, text=self.t("設定JSONを新規保存して次へ →", "Save new config and continue →"),
                    command=self._create_guided_config).pack(anchor="w", pady=(0, 10))
@@ -196,10 +274,35 @@ class ScheduledApiDesktop:
             "Advanced JSON supports environment-variable references for credentials.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(14, 0))
 
+    def _use_explorer_source(self, source: dict) -> None:
+        """Bring a manually inspected API's selected JSON fields into daily setup."""
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        if "[*]" in source["fields"]:
+            messagebox.showwarning(
+                self.t("日次データは1行です", "Daily data is one observation"),
+                self.t("配列[*]を扱う画面は手動取得用です。毎日CSV履歴では1項目に1つの値だけ指定してください。",
+                       "The daily CSV updater expects one scalar per field. Remove [*] array selectors."),
+                parent=self.root)
+            return
+        self.guide_url.set(source["url"])
+        self.guide_csv_fields.set(source["fields"])
+        self.guide_fields_editor.delete("1.0", "end")
+        self.guide_fields_editor.insert("1.0", source["fields"])
+        self.guide_auth_header.set(source.get("header_name", ""))
+        self.guide_name.set(source["name"])
+        self.guide_csv_enabled.set(True)
+        self.notebook.select(self.guide_tab)
+        self.preview_revision = None
+        self.status.set(self.t(
+            "APIの項目を取り込みました。CSV名・日付項目・認証環境変数を確認して保存してください。",
+            "API fields imported. Review CSV name, date path and authentication variable, then save."))
+
     def _guide_language_changed(self, _event=None) -> None:
         if self._once_running or self.monitor_thread is not None or self.explorer.busy:
             self.guide_language.set("English" if self.lang == "en" else "日本語")
             return
+        self.guide_csv_fields.set(self.guide_fields_editor.get("1.0", "end").strip())
         self.lang = "en" if self.guide_language.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
@@ -221,6 +324,14 @@ class ScheduledApiDesktop:
                 root_dir=self.guide_root.get(), name=self.guide_name.get(),
                 url=self.guide_url.get(), daily_at=self.guide_at.get(),
             )
+            if getattr(self, 'guide_csv_enabled', None) is not None and self.guide_csv_enabled.get():
+                config = add_daily_csv_output(
+                    config, path=self.guide_csv_path.get(),
+                    fields=self.guide_fields_editor.get("1.0", "end").strip(),
+                    date_path=self.guide_csv_date_path.get(), on_duplicate='skip')
+            config = add_auth_header_env(
+                config, header_name=self.guide_auth_header.get(),
+                env_name=self.guide_auth_env.get())
         except (GuidedConfigError, OSError) as exc:
             messagebox.showerror(self.t("設定内容を確認", "Check your settings"), str(exc), parent=self.root)
             return
@@ -247,6 +358,7 @@ class ScheduledApiDesktop:
             self.language_var.set("English" if self.lang == "en" else "日本語")
             return
         was_advanced = self.notebook.select() == str(self.advanced_tab)
+        self.guide_csv_fields.set(self.guide_fields_editor.get("1.0", "end").strip())
         self.lang = "en" if self.language_var.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
@@ -444,6 +556,73 @@ class ScheduledApiDesktop:
         if not ok:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
+    def _task_complete(self, ok: bool, operation: str, detail: str) -> None:
+        self._task_busy = False
+        self.task_register_btn.configure(state="normal")
+        self.task_remove_btn.configure(state="normal")
+        self.status.set(self.t("Windowsタスク処理完了" if ok else "Windowsタスク処理失敗",
+                               "Windows task updated" if ok else "Windows task operation failed"))
+        if ok:
+            messagebox.showinfo(self.t("Windowsタスク", "Windows Task"), detail, parent=self.root)
+        else:
+            messagebox.showerror(self.t("Windowsタスク", "Windows Task"), detail, parent=self.root)
+
+    def _task_worker(self, operation: str, path: Path, digest: str = "") -> None:
+        self._task_busy = True
+        self.task_register_btn.configure(state="disabled")
+        self.task_remove_btn.configure(state="disabled")
+        self.status.set(self.t("Windowsのタスクを設定中…", "Configuring Windows Task Scheduler…"))
+
+        def work():
+            try:
+                result = register_task(path, expected_sha256=digest) if operation == "add" else unregister_task(path)
+                ok, detail = True, self.t("操作成功：", "Task updated: ") + result
+            except (WindowsTaskError, OSError, ValueError) as exc:
+                ok, detail = False, str(exc)
+            self.root.after(0, lambda: self._task_complete(ok, operation, detail))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _register_windows_task(self) -> None:
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        if not self._load_config(True) or not self._preview_ready():
+            return
+        assert self.config is not None
+        try:
+            when = validate_dated_get_config(self.config)
+            path = Path(self.config_path.get()).expanduser().resolve()
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+        except (WindowsTaskError, ValueError, OSError) as exc:
+            messagebox.showerror(self.t("登録条件", "Task requirements"), str(exc), parent=self.root)
+            return
+        if not messagebox.askyesno(self.t("毎日のAPI取得を登録", "Register daily API task"),
+                self.t(f"毎日{when}にこのGET API設定をWindowsに登録します。"
+                       "ログオン中のみ実行。設定ファイル変更後は自動停止します。"
+                       "既存の同名タスクは上書きしません。続行しますか？",
+                       f"Register this GET API collection every day at {when}? "
+                       "Runs while signed in. Changes to the saved JSON stop future execution. "
+                       "Existing tasks will not be overwritten. Continue?"),
+                parent=self.root):
+            return
+        self.preview_revision = None
+        self._task_worker("add", path, checksum)
+
+    def _remove_windows_task(self) -> None:
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        path_text = self.config_path.get()
+        if not path_text:
+            return
+        path = Path(path_text).expanduser().resolve()
+        if not messagebox.askyesno(
+                self.t("Windowsタスクを削除", "Remove Windows task"),
+                self.t("この設定ファイルに紐づくWindowsタスクを停止・削除しますか？"
+                       "保存済みJSONとCSVファイルは削除しません。",
+                       "Remove the task for this saved config? JSON and CSV files remain."),
+                parent=self.root):
+            return
+        self._task_worker("remove", path)
+
     def _start_scheduler(self) -> None:
         if self._once_running or self.monitor_thread is not None or not self._load_config(True):
             return
@@ -524,4 +703,11 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["--self-test"]:
         raise SystemExit(self_test())
+    if len(sys.argv) == 4 and sys.argv[1] == "--run-locked":
+        try:
+            raise SystemExit(run_locked_config(Path(sys.argv[2]), sys.argv[3]))
+        except (WindowsTaskError, RunnerError, OSError, ValueError, json.JSONDecodeError) as exc:
+            if sys.stderr is not None:
+                print(f"Daily API job failed: {type(exc).__name__}", file=sys.stderr)
+            raise SystemExit(1)
     main()
