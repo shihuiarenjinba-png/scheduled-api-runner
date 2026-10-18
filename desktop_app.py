@@ -175,7 +175,7 @@ class ScheduledApiDesktop:
             "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
             "③ 試運転結果を確認した後、1回実行か定期実行を選びます。Windows起動中だけ動作します。",
             "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
-            "3. Review the preview, then choose Run Once or Start Scheduler. The PC/app must remain running.",
+            "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
         ttk.Button(pane, text=self.t("設定JSONを新規保存して次へ →", "Save new config and continue →"),
                    command=self._create_guided_config).pack(anchor="w", pady=(0, 10))
