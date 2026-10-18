@@ -60,6 +60,35 @@ class CsvUpdateTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), before)
         self.assertFalse(list(self.root.glob(".sales.csv.backup-*")))
 
+    def test_backup_is_separate_snapshot_not_linked_to_original_inode(self):
+        original = self.root / "sales.csv"
+        original.write_text("date,sales,orders\n2026-10-17,1,2\n", encoding="utf-8")
+        update_series(self.root, SETTINGS, DOCUMENT, NOW)
+        backups = list(self.root.glob(".sales.csv.backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertFalse(backups[0].samefile(original))
+        before = backups[0].read_bytes()
+        with original.open("a", encoding="utf-8") as fh:
+            fh.write("2026-10-19,3,4\n")
+        self.assertEqual(backups[0].read_bytes(), before)
+
+    def test_bad_datetime_suffix_is_rejected_without_touching_history(self):
+        existing = self.root / "sales.csv"
+        existing.write_text("date,sales,orders\n2026-10-17,1,2\n", encoding="utf-8")
+        before = existing.read_bytes()
+        for wrong in ("2026-10-18T99:00", "2026-10-18T09:xyz",
+                      "2026-10-18 08:00:00BAD", "2026-10-32T09:00"):
+            with self.subTest(value=wrong), self.assertRaises(SeriesError):
+                update_series(self.root, SETTINGS, {
+                    "data": {"date": wrong, "sales": 200, "orders": 2}}, NOW)
+            self.assertEqual(existing.read_bytes(), before)
+
+    def test_valid_utc_iso_timestamp_keeps_provider_day(self):
+        payload = {"data": {"date": "2026-10-17T23:45:00Z",
+                             "sales": 1000, "orders": 10}}
+        result = update_series(self.root, SETTINGS, payload, NOW)
+        self.assertEqual(result["date"], "2026-10-17")
+
     def test_explicit_replace_only_changes_matching_date_and_creates_backup(self):
         target = self.root / "sales.csv"
         target.write_text("date,sales,orders\n2026-10-17,1,2\n2026-10-18,3,4\n",
