@@ -44,7 +44,10 @@ def https_host(url: str) -> str:
 
 
 def make_get_job(*, root_dir: str, name: str, url: str, daily_at: str) -> dict:
-    root = Path(str(root_dir)).expanduser()
+    root_value = str(root_dir).strip()
+    if not root_value:
+        raise GuidedConfigError("Select a data folder first / 最初に保存先フォルダーを選択してください")
+    root = Path(root_value).expanduser()
     if not root.is_dir():
         raise GuidedConfigError("Choose an existing data folder / 既存の保存用フォルダーを選んでください")
     job_name = str(name).strip()
