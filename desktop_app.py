@@ -173,7 +173,7 @@ class ScheduledApiDesktop:
             row=0, column=2, padx=(8, 0))
         ttk.Label(pane, text=self.t(
             "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
-            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。Windows起動中だけ動作します。",
+            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。定期実行中はアプリを開いたままにしてください。",
             "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
             "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
         ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
