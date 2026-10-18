@@ -71,8 +71,9 @@ class JobWindow(ttk.Frame):
                    command=self.remove_windows).pack(side='left', padx=4)
         ttk.Label(self, textvariable=self.status, wraplength=680).grid(row=9, column=0, columnspan=3, sticky='w')
         ttk.Label(self, foreground='#555555',
-                  text='Local only. Schedule runs while this window is open; no cloud account or silent OS task registration.\n'
-                       'A CSV backup is written for each successful update. Review the file before sharing.',
+                  text='Local only. In-window schedule ends on close. Windows task is optional and user-approved.\n'
+                       'Windows task requires the user signed in, and saved JSON and Python paths available.\n'
+                       'A CSV backup is written for each successful update. Review it before sharing.',
                   wraplength=690).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
 
     def _browse(self):
