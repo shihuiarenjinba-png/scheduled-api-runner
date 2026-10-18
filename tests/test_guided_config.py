@@ -48,6 +48,12 @@ class GuidedApiSetupTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(GuidedConfigError):
                 self.make(name=name)
 
+    def test_empty_or_missing_folder_must_be_chosen_explicitly(self):
+        with self.assertRaises(GuidedConfigError):
+            self.make(root_dir="")
+        with self.assertRaises(GuidedConfigError):
+            self.make(root_dir=str(self.root / "missing-folder"))
+
     def test_existing_json_remains_identical_after_save_attempt(self):
         target = self.root / "existing.json"
         target.write_text("valuable", encoding="utf-8")
