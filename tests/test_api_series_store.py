@@ -110,6 +110,21 @@ class CsvUpdateTests(unittest.TestCase):
             update_series(self.root, SETTINGS, {"data": {"date": "2026-10-18", "orders": 1}}, NOW)
         self.assertEqual(target.read_bytes(), before)
 
+    def test_malformed_historical_csv_is_not_rewritten(self):
+        bad_contents = (
+            b"date,sales,orders\\n2026-10-17,1\\n",
+            b"date,sales,orders\\n,1,2\\n",
+            b"date,sales,orders\\n2026-10-17,1,2\\n2026-10-17,3,4\\n",
+        )
+        target = self.root / "sales.csv"
+        for original in bad_contents:
+            with self.subTest(original=original):
+                target.write_bytes(original)
+                with self.assertRaises(SeriesError):
+                    update_series(self.root, SETTINGS, DOCUMENT, NOW)
+                self.assertEqual(target.read_bytes(), original)
+                self.assertFalse(list(self.root.glob(".sales.csv.backup-*")))
+
     def test_wrong_schema_never_modifies_historical_file(self):
         target = self.root / "sales.csv"
         original = b"date,price,quantity\n2026-10-17,3,5\n"
