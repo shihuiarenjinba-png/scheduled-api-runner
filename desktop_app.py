@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import threading
@@ -27,6 +28,7 @@ class ScheduledApiDesktop:
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
         self._once_running = False
+        self.preview_revision: str | None = None
         self.stop_event = threading.Event()
         self._build()
         default = Path(__file__).resolve().parent / "jobs.example.json"
@@ -121,6 +123,9 @@ class ScheduledApiDesktop:
             self.dry_btn.configure(state="disabled")
 
     def _language_changed(self, _event=None) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            self.language_var.set("English" if self.lang == "en" else "日本語")
+            return
         self.lang = "en" if self.language_var.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
@@ -129,6 +134,8 @@ class ScheduledApiDesktop:
         self.status.set(self.t("定期実行中", "Scheduler running") if self.monitor_thread is not None else self.t("準備完了", "Ready"))
 
     def _browse(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
         path = filedialog.askopenfilename(
             title=self.t("定期API設定JSONを選択", "Choose Scheduled API JSON"),
             filetypes=[("JSON", "*.json"), (self.t("すべてのファイル", "All files"), "*.*")],
@@ -200,19 +207,60 @@ class ScheduledApiDesktop:
             fn()
         return buffer.getvalue()
 
+    def _revision(self, raw: dict) -> str:
+        # A different selected config file is never approved by an old preview.
+        canonical = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        payload = str(Path(self.config_path.get()).expanduser().resolve()) + "\\n" + canonical
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _preview_complete(self, ok: bool, text: str, status: str, revision: str) -> None:
+        # The user may have edited the JSON while the worker was reading it.
+        # Verify on disk at completion, then allow one future live execution.
+        self.preview_revision = None
+        if ok:
+            try:
+                if self._revision(self._read_raw()) == revision:
+                    self.preview_revision = revision
+                else:
+                    status = self.t("設定変更後は再試運転してください", "Configuration changed: dry-run again")
+            except (OSError, ValueError, RunnerError, json.JSONDecodeError):
+                status = self.t("設定を再確認してください", "Recheck configuration")
+        self._finish(ok, text, status)
+
+    def _preview_ready(self) -> bool:
+        if self.preview_revision is not None and self.config is not None:
+            if self._revision(self.config) == self.preview_revision:
+                return True
+        messagebox.showwarning(
+            self.t("試運転が必要", "Dry Run required"),
+            self.t("この設定で試運転を成功させてから実行してください。",
+                   "Run a successful Dry Run on this exact configuration before sending requests."),
+            parent=self.root,
+        )
+        return False
+
     def _dry_run(self) -> None:
         if self._once_running or self.monitor_thread is not None or not self._load_config(True):
             return
         assert self.config is not None
         raw = self.config
+        revision = self._revision(raw)
+        self.preview_revision = None
+        self._once_running = True
+        self.run_btn.configure(state="disabled")
+        self.dry_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
         self.status.set(self.t("確認中…", "Dry Run…"))
 
         def worker() -> None:
             try:
                 text = self._capture(lambda: ScheduledRunner(raw, dry_run=True).run_all_once())
-                self.root.after(0, lambda: self._finish(True, text or "Dry Run OK", self.t("確認完了", "Dry Run complete")))
+                self.root.after(0, lambda t=text: self._preview_complete(
+                    True, t or "Dry Run OK", self.t("確認完了", "Dry Run complete"), revision))
             except Exception as exc:
-                self.root.after(0, lambda: self._finish(False, f"{type(exc).__name__}: {exc}", self.t("確認失敗", "Dry Run failed")))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: self._preview_complete(
+                    False, e, self.t("確認失敗", "Dry Run failed"), revision))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -237,10 +285,14 @@ class ScheduledApiDesktop:
         return messagebox.askyesno(self.t("実API実行", "Live API execution"), message, parent=self.root)
 
     def _live_once(self) -> None:
-        if self._once_running or self.monitor_thread is not None or not self._load_config(True) or not self._confirm_live(False):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
+            return
+        if not self._preview_ready() or not self._confirm_live(False):
             return
         assert self.config is not None
         raw = self.config
+        # Do not retain permission if the remote API acts but the response is lost.
+        self.preview_revision = None
         self._once_running = True
         self.run_btn.configure(state="disabled")
         self.dry_btn.configure(state="disabled")
@@ -252,7 +304,9 @@ class ScheduledApiDesktop:
                 text = self._capture(lambda: ScheduledRunner(raw, dry_run=False).run_all_once())
                 self.root.after(0, lambda: self._finish(True, text or "Run OK", self.t("実行完了", "Run complete")))
             except Exception as exc:
-                self.root.after(0, lambda: self._finish(False, f"{type(exc).__name__}: {exc}", self.t("実行失敗", "Run failed")))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: self._finish(
+                    False, e, self.t("実行失敗", "Run failed")))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -268,10 +322,13 @@ class ScheduledApiDesktop:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
     def _start_scheduler(self) -> None:
-        if self._once_running or self.monitor_thread is not None or not self._load_config(True) or not self._confirm_live(True):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
+            return
+        if not self._preview_ready() or not self._confirm_live(True):
             return
         assert self.config is not None
         raw = self.config
+        self.preview_revision = None
         self.stop_event.clear()
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
@@ -288,7 +345,9 @@ class ScheduledApiDesktop:
                         self.root.after(0, lambda t=text: self._append(t))
                     self.stop_event.wait(runner.poll_seconds)
             except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror(self.t("スケジューラエラー", "Scheduler error"), f"{type(exc).__name__}: {exc}", parent=self.root))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: messagebox.showerror(
+                    self.t("スケジューラエラー", "Scheduler error"), e, parent=self.root))
             finally:
                 self.root.after(0, self._scheduler_stopped)
 
