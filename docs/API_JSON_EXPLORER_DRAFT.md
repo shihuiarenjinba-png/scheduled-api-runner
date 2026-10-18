@@ -13,7 +13,7 @@ Status: **SOURCE DRAFT / COMMERCIAL HOLD.** This changes only a new Git branch. 
    - Grand Total = total
 4. Click **Offline preview** to check the URL and field paths without any network calls.
 5. Click **Fetch GET**, review each destination host in the confirmation, and then make exactly one GET per configured source. The old preview is consumed on entry.
-6. See the selected API response on the **right** as rows and a shortened raw JSON preview; select among fetched sources.
+6. See the selected API response on the **right** as rows and a shortened raw JSON preview; select among fetched sources. Click **Suggest fields** to put automatically discovered JSON paths back into the left-side field editor, then review and preview again.
 7. Explicitly save the fetched data to a **new** .xlsx workbook (one sheet per API, real JSON numeric values remain numeric), .txt file (textual values), or raw .json. Existing output files are never overwritten.
 8. Save and reload a separate JSON **template** of source URLs/field paths; sensitive header *values* are intentionally not written to the template.
 
