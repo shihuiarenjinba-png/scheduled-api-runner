@@ -131,3 +131,24 @@ feature does not yet support. Use authorized APIs only.
 Implementation and QA limits: docs/API_JSON_EXPLORER_DRAFT.md.
 The new tests are *authored*, not CI-PASS. No main merges, MSIX sale or Store
 submission are authorized from this branch.
+
+
+## Daily API history updates / 毎日のAPI時系列CSV更新（2026-10-18 開発版）
+
+**販売判断: HOLD / 実機とCI未検証**。API専用の主力用途を「取得したJSONの
+特定フィールドを、日付をキーに既存のCSV履歴へ追加する」ことに定めました。
+新しい初心者向け画面からAPI URL・実行時刻・取得項目・CSVファイル名・
+API内の日付項目を入力し、新しいジョブ設定JSONを作成できます。
+試運転は通信しません。実API取得時に1日の1レコードを作成します。
+
+- 同じ日付の行は既定で追加しない（重複防止）。明示設定時だけ置換。
+- 既存CSVへ書く直前に元データのバックアップを新規作成し、完全な新ファイルを原子的に公開。
+- 既存ヘッダー不一致・必須JSON項目欠損・不正日付・他プロセスのロック時は保存しない。
+- CSVはExcel等で開けますが、**既存の.xlsxを直接更新する機能ではありません**。
+- 日次スケジュールは同日の指定時刻以降に起動した場合も追いつけます。
+- PC停止中にネットワーク取得を代行するクラウド機能はありません。
+- ファイルを更新するため、元CSV・バックアップの権限や保存先の容量を事前に確認してください。
+
+詳細：docs/DAILY_API_SERIES_WRITER.md。新しい回帰テストは
+tests/test_api_series_store.py。既存のAPIデータプレビュー画面も開発ブランチに
+残しますが、主要な商用品質の判定は定期取得＋履歴更新で行います。
