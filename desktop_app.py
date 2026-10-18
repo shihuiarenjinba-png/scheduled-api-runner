@@ -173,8 +173,18 @@ class ScheduledApiDesktop:
             self.dry_btn.configure(state="disabled")
 
     def _build_guide(self) -> None:
-        pane = ttk.Frame(self.guide_tab, padding=20)
-        pane.pack(fill="both", expand=True)
+        # Long onboarding form remains usable on laptop displays and at 150% DPI.
+        canvas = tk.Canvas(self.guide_tab, highlightthickness=0)
+        scroll = ttk.Scrollbar(self.guide_tab, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        pane = ttk.Frame(canvas, padding=20)
+        form_window = canvas.create_window((0, 0), window=pane, anchor="nw")
+        pane.bind("<Configure>", lambda _event: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(
+            form_window, width=event.width))
         banner = ttk.Frame(pane)
         banner.pack(fill="x", pady=(0, 10))
         ttk.Label(banner, text=self.t("定期API実行とは？", "What does Scheduled API Runner do?"),
