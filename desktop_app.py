@@ -482,6 +482,21 @@ class ScheduledApiDesktop:
         self.status.set(self.t("停止しました", "Stopped"))
 
 
+def self_test() -> int:
+    """Verify packaged imports, config generation and no-network Dry Run."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="scheduled-api-self-test-") as d:
+        test_config = make_get_job(
+            root_dir=d, name="Self test GET",
+            url="https://example.com/status", daily_at="09:00",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            ScheduledRunner(test_config, dry_run=True).run_all_once()
+        root = Path(d)
+        if (root / ".state").exists() or (root / "logs").exists():
+            raise RuntimeError("Dry Run unexpectedly wrote to filesystem")
+    return 0
+
 def main() -> None:
     root = tk.Tk()
     ScheduledApiDesktop(root)
@@ -489,4 +504,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["--self-test"]:
+        raise SystemExit(self_test())
     main()
