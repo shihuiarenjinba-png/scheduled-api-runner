@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from guided_config import GuidedConfigError, https_host, save_new_config
 
-from guided_config import make_get_job
+from guided_config import make_get_job, add_auth_header_env, add_daily_csv_output
 from desktop_app import ScheduledApiDesktop
 
 
@@ -72,6 +72,25 @@ class GuidedApiSetupTests(unittest.TestCase):
         opener.assert_not_called()
         self.assertFalse((self.root / ".state").exists())
 
+    def test_auth_header_uses_environment_reference_not_plaintext(self):
+        raw = self.make()
+        auth = add_auth_header_env(raw, header_name="X-API-Key", env_name="SALES_API_KEY")
+        self.assertEqual(auth["jobs"][0]["request"]["headers"]["X-API-Key"],
+                         "$" + "{ENV:SALES_API_KEY}")
+        self.assertNotIn("headers", raw["jobs"][0]["request"])
+        for header, variable in [
+            ("Host", "MY_KEY"), ("Authorization", ""), ("X-API-Key", "TOKEN-NAME"),
+            ("", "MY_KEY"), ("Cookie", "COOKIE")]:
+            with self.subTest(header=header,variable=variable), self.assertRaises(GuidedConfigError):
+                add_auth_header_env(raw, header_name=header, env_name=variable)
+
+    def test_wizard_multi_column_csv_matches_advanced_parser(self):
+        config = add_daily_csv_output(
+            self.make(), path="sales-history.csv",
+            fields="sales = data.sales\norders = data.orders\nvisits = data.visits",
+            date_path="data.date")
+        self.assertEqual(config["jobs"][0]["csv_update"]["fields"].count("\n"), 2)
+
     def test_gui_wizard_saves_without_executing_requests(self):
         app = ScheduledApiDesktop.__new__(ScheduledApiDesktop)
         app._once_running = False
@@ -83,6 +102,8 @@ class GuidedApiSetupTests(unittest.TestCase):
         app.guide_name = Mock(get=Mock(return_value="Status"))
         app.guide_url = Mock(get=Mock(return_value="https://example.com/"))
         app.guide_at = Mock(get=Mock(return_value="09:00"))
+        app.guide_auth_header = Mock(get=Mock(return_value=""))
+        app.guide_auth_env = Mock(get=Mock(return_value=""))
         app.config_path = Mock()
         app.notebook = Mock()
         app.advanced_tab = "advanced"
