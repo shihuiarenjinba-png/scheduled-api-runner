@@ -46,3 +46,36 @@ The separate API Data Explorer tab lets the user manually preview fields and try
 6. Code operator must resolve prior GitHub Actions jobs failing before steps and produce CI evidence. Real Windows EXE/MSIX, WACK, rights/licenses, review of Store descriptions and owner sign-off remain HOLD.
 
 Example advanced config: jobs.dated-csv.example.json. It is disabled and requires customer changes (including a real existing output directory for nested paths).
+
+
+## Opt-in Windows scheduled API history (source draft, 2026-10-18)
+
+The Windows GUI Advanced tab offers an optional **Register daily Windows
+task** button and an explicit **Remove registered task** control, in addition
+to in-app Start/Stop Scheduler. Register is gated on an unchanged successful
+offline Dry Run and a second consent dialog. Windows task registration is
+limited to **one enabled daily HTTPS GET job** with a validated dated CSV
+output; no POST/PATCH/PUT/DELETE and no multi-job config. Multiple API
+datasets may be maintained as **separate approved task/config files**.
+
+The task runs the frozen EXE (or Python source launcher) in non-GUI
+--run-locked mode and does a *single due-jobs check*. Its argument includes a
+SHA-256 of the approved full JSON file. If any byte of that file changes,
+future scheduled executions fail closed until the user explicitly removes and
+re-registers the task. Create does NOT use schtasks /F, so it never silently
+replaces an existing named Windows task. Removal requires a separate dialog
+and does not delete the JSON file or customer data. Failure of a due GET
+returns a nonzero task exit status.
+
+Restrictions: registration is supported on Windows only, and the scheduled
+job is interactive-logon / non-elevated. It does **not** work when the PC is
+off or no user is signed in. OS user environment variables used for credentials
+must be accessible to the scheduled user after sign-in. After an app install
+location/version changes, re-register tasks and verify the EXE path. This
+registration does not install a Windows service or hidden cloud agent.
+
+Operator QA: run tests/test_windows_tasks.py, register on a disposable
+Windows account, verify at HH:MM with GUI closed, repeat (date skipped),
+change JSON (blocked), unplug network (nonzero exit), remove task (customer
+files remain), restart PC/logon, inspect Windows Task Scheduler History.
+Do not enable /F or change task privileges to bypass user consent.
