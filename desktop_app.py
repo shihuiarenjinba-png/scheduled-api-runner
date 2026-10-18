@@ -222,14 +222,23 @@ class ScheduledApiDesktop:
             "取得したJSONの値を日付付きCSVに追記（初期ON）",
             "Append extracted API values into dated CSV (on by default)")).grid(
             row=4, column=0, columnspan=3, sticky="w", pady=(7, 2))
-        outputs = [
-            (self.t("CSVファイル名（例 daily-sales.csv）", "CSV filename (e.g. daily-sales.csv)"), self.guide_csv_path),
-            (self.t("抽出項目（例 sales = data.sales）", "Fields (e.g. sales = data.sales)"), self.guide_csv_fields),
-            (self.t("APIの日付項目（任意）", "API date path (optional)"), self.guide_csv_date_path),
-        ]
-        for i, (label, variable) in enumerate(outputs, 5):
-            ttk.Label(group, text=label).grid(row=i, column=0, sticky="w", padx=(0, 10), pady=4)
-            ttk.Entry(group, textvariable=variable).grid(row=i, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "CSVファイル名（例 daily-sales.csv）", "CSV filename (e.g. daily-sales.csv)")
+        ).grid(row=5, column=0, sticky="w", padx=(0, 10), pady=4)
+        ttk.Entry(group, textvariable=self.guide_csv_path).grid(
+            row=5, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "JSON項目（1行に1項目。例 sales = data.sales）",
+            "JSON fields (one per line, e.g. sales = data.sales)")
+        ).grid(row=6, column=0, sticky="nw", padx=(0, 10), pady=4)
+        self.guide_fields_editor = tk.Text(group, height=4, wrap="none")
+        self.guide_fields_editor.insert("1.0", self.guide_csv_fields.get())
+        self.guide_fields_editor.grid(row=6, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(group, text=self.t(
+            "APIの日付項目（任意）", "API date path (optional)")
+        ).grid(row=7, column=0, sticky="w", padx=(0, 10), pady=4)
+        ttk.Entry(group, textvariable=self.guide_csv_date_path).grid(
+            row=7, column=1, columnspan=2, sticky="ew", pady=4)
         ttk.Label(group, text=self.t(
             "API内に日付がある場合は data.date などを指定。空欄ならPCの実行日を記録。"
             "同じ日付はスキップ。更新時は元CSVのバックアップを保持します。",
@@ -278,6 +287,8 @@ class ScheduledApiDesktop:
             return
         self.guide_url.set(source["url"])
         self.guide_csv_fields.set(source["fields"])
+        self.guide_fields_editor.delete("1.0", "end")
+        self.guide_fields_editor.insert("1.0", source["fields"])
         self.guide_auth_header.set(source.get("header_name", ""))
         self.guide_name.set(source["name"])
         self.guide_csv_enabled.set(True)
@@ -291,6 +302,7 @@ class ScheduledApiDesktop:
         if self._once_running or self.monitor_thread is not None or self.explorer.busy:
             self.guide_language.set("English" if self.lang == "en" else "日本語")
             return
+        self.guide_csv_fields.set(self.guide_fields_editor.get("1.0", "end").strip())
         self.lang = "en" if self.guide_language.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
@@ -315,7 +327,7 @@ class ScheduledApiDesktop:
             if getattr(self, 'guide_csv_enabled', None) is not None and self.guide_csv_enabled.get():
                 config = add_daily_csv_output(
                     config, path=self.guide_csv_path.get(),
-                    fields=self.guide_csv_fields.get(),
+                    fields=self.guide_fields_editor.get("1.0", "end").strip(),
                     date_path=self.guide_csv_date_path.get(), on_duplicate='skip')
             config = add_auth_header_env(
                 config, header_name=self.guide_auth_header.get(),
@@ -346,6 +358,7 @@ class ScheduledApiDesktop:
             self.language_var.set("English" if self.lang == "en" else "日本語")
             return
         was_advanced = self.notebook.select() == str(self.advanced_tab)
+        self.guide_csv_fields.set(self.guide_fields_editor.get("1.0", "end").strip())
         self.lang = "en" if self.language_var.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
