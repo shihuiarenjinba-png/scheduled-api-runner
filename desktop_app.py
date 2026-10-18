@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import threading
@@ -10,6 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from scheduled_api_runner import RunnerError, ScheduledRunner
+from guided_config import GuidedConfigError, make_get_job, save_new_config
 from ui_language import load_language, save_language
 
 APP_ID = "scheduled-api-runner"
@@ -23,9 +25,15 @@ class ScheduledApiDesktop:
         self.root.geometry("1080x760")
         self.root.minsize(900, 640)
         self.config_path = tk.StringVar()
+        self.guide_root = tk.StringVar()
+        self.guide_name = tk.StringVar(value="Daily status check")
+        self.guide_url = tk.StringVar(value="https://example.com/status")
+        self.guide_at = tk.StringVar(value="09:00")
         self.status = tk.StringVar(value="")
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
+        self._once_running = False
+        self.preview_revision: str | None = None
         self.stop_event = threading.Event()
         self._build()
         default = Path(__file__).resolve().parent / "jobs.example.json"
@@ -43,7 +51,14 @@ class ScheduledApiDesktop:
             child.destroy()
         self.root.title(self.t("定期API実行", "Scheduled API Runner"))
 
-        outer = ttk.Frame(self.root, padding=18)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+        self.guide_tab = ttk.Frame(self.notebook)
+        self.advanced_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.guide_tab, text=self.t("はじめに・新規設定", "Start here / New setup"))
+        self.notebook.add(self.advanced_tab, text=self.t("詳細・試運転・実行", "Advanced / Preview / Run"))
+        self._build_guide()
+        outer = ttk.Frame(self.advanced_tab, padding=18)
         outer.pack(fill="both", expand=True)
 
         language = ttk.Frame(outer)
@@ -58,9 +73,10 @@ class ScheduledApiDesktop:
         ttk.Label(
             outer,
             text=self.t(
-                "許可したHTTPSホストへ、決められたジョブだけを実行します。秘密値は画面に表示しません。",
-                "Runs only configured jobs against allowed HTTPS hosts. Secret values are not shown in the UI.",
+                "使い方：①設定JSONを選ぶ → ②検証・試運転（外部送信なし）→ ③内容を確認して1回実行、または定期実行。許可したHTTPSホストのみ通信します。",
+                "Start here: 1. Select JSON → 2. Validate and Dry Run (no API requests) → 3. Confirm and run once or schedule. HTTPS allowlisted hosts only.",
             ),
+            wraplength=940,
         ).pack(anchor="w", pady=(0, 14))
 
         cfg = ttk.LabelFrame(outer, text=self.t("設定", "Configuration"), padding=10)
@@ -113,21 +129,128 @@ class ScheduledApiDesktop:
         scroll.pack(side="right", fill="y")
         ttk.Label(outer, textvariable=self.status).pack(fill="x", pady=(8, 0))
 
-        if self.monitor_thread is not None:
+        if self.monitor_thread is not None or self._once_running:
             self.start_btn.configure(state="disabled")
-            self.stop_btn.configure(state="normal")
+            self.stop_btn.configure(state="normal" if self.monitor_thread is not None else "disabled")
             self.run_btn.configure(state="disabled")
             self.dry_btn.configure(state="disabled")
 
+    def _build_guide(self) -> None:
+        pane = ttk.Frame(self.guide_tab, padding=20)
+        pane.pack(fill="both", expand=True)
+        banner = ttk.Frame(pane)
+        banner.pack(fill="x", pady=(0, 10))
+        ttk.Label(banner, text=self.t("定期API実行とは？", "What does Scheduled API Runner do?"),
+                  font=("Segoe UI", 18, "bold")).pack(side="left")
+        guide_lang = ttk.Combobox(
+            banner, values=("日本語", "English"), state="readonly", width=10
+        )
+        guide_lang.set("English" if self.lang == "en" else "日本語")
+        self.guide_language = guide_lang
+        guide_lang.pack(side="right")
+        guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
+        ttk.Label(pane, text=self.t(
+            "決めた時刻に、指定したHTTPS APIへリクエストを送るWindowsアプリです。\n"
+            "例えば、自社APIの状態確認を毎朝9時に実行できます。クラウドサーバー不要。\n"
+            "まずは安全なGETリクエストを1件だけ作ります。POSTなどの更新操作は詳細設定で扱います。",
+            "Send requests to a chosen HTTPS API on a schedule from your Windows PC.\n"
+            "Example: check an API status at 9 AM every day. No cloud server required.\n"
+            "This guided setup creates just one GET request. Mutating requests require advanced setup.",
+        ), wraplength=880, justify="left").pack(anchor="w", pady=(0, 16))
+        group = ttk.LabelFrame(pane, text=self.t("① 実行したい内容を入力", "1. Set up a status check"), padding=12)
+        group.pack(fill="x", pady=(0, 12))
+        group.columnconfigure(1, weight=1)
+        fields = [
+            (self.t("作業用フォルダー", "Local work folder"), self.guide_root),
+            (self.t("ジョブ名", "Job name"), self.guide_name),
+            (self.t("HTTPS URL", "HTTPS URL"), self.guide_url),
+            (self.t("毎日の実行時刻 (HH:MM)", "Daily time (HH:MM)"), self.guide_at),
+        ]
+        for i, (label, variable) in enumerate(fields):
+            ttk.Label(group, text=label).grid(row=i, column=0, sticky="w", pady=6, padx=(0, 10))
+            ttk.Entry(group, textvariable=variable).grid(row=i, column=1, sticky="ew", pady=6)
+        ttk.Button(group, text=self.t("選択…", "Browse…"), command=self._choose_guide_root).grid(
+            row=0, column=2, padx=(8, 0))
+        ttk.Label(pane, text=self.t(
+            "② 設定を新規保存するだけではAPIへの通信は発生しません。保存後の画面で試運転を実行してください。\n"
+            "③ 試運転結果を確認した後、1回実行か定期実行を選びます。定期実行中はアプリを開いたままにしてください。",
+            "2. Saving a new config sends no network traffic. Use Dry Run on the next screen.\n"
+            "3. Review the preview, then choose Run Once or Start Scheduler. Keep this app open for scheduling.",
+        ), wraplength=870, justify="left").pack(anchor="w", pady=(6, 12))
+        ttk.Button(pane, text=self.t("設定JSONを新規保存して次へ →", "Save new config and continue →"),
+                   command=self._create_guided_config).pack(anchor="w", pady=(0, 10))
+        ttk.Button(pane, text=self.t("既存JSONを使う（詳細画面へ）", "Use existing JSON (advanced)"),
+                   command=lambda: self.notebook.select(self.advanced_tab)).pack(anchor="w")
+        ttk.Label(pane, text=self.t(
+            "注意：この画面はGET専用です。APIキー等の秘密情報はURLやジョブ名に入力せず、\n"
+            "詳細設定で環境変数による管理を使用してください。",
+            "Note: GET-only wizard. Do not put API keys or secrets in URLs or names.\n"
+            "Advanced JSON supports environment-variable references for credentials.",
+        ), wraplength=870, justify="left").pack(anchor="w", pady=(14, 0))
+
+    def _guide_language_changed(self, _event=None) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            self.guide_language.set("English" if self.lang == "en" else "日本語")
+            return
+        self.lang = "en" if self.guide_language.get() == "English" else "ja"
+        save_language(APP_ID, self.lang)
+        self._build()
+        if self.config is not None:
+            self._render_summary(self.config)
+
+    def _choose_guide_root(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
+        directory = filedialog.askdirectory(parent=self.root)
+        if directory:
+            self.guide_root.set(directory)
+
+    def _create_guided_config(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
+        try:
+            config = make_get_job(
+                root_dir=self.guide_root.get(), name=self.guide_name.get(),
+                url=self.guide_url.get(), daily_at=self.guide_at.get(),
+            )
+        except (GuidedConfigError, OSError) as exc:
+            messagebox.showerror(self.t("設定内容を確認", "Check your settings"), str(exc), parent=self.root)
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self.root, defaultextension=".json", initialfile="api-job.json",
+            filetypes=[("JSON", "*.json")],
+        )
+        if not path:
+            return
+        try:
+            save_new_config(path, config)
+        except OSError as exc:
+            messagebox.showerror(self.t("保存できませんでした", "Could not save"), str(exc), parent=self.root)
+            return
+        self.preview_revision = None
+        self.config_path.set(str(path))
+        self.notebook.select(self.advanced_tab)
+        self._load_config(True)
+        self.status.set(self.t("保存完了。次はDry Runです（まだAPIへ送信していません）。",
+                               "Saved. Next: Dry Run (no API request has been sent)."))
+
     def _language_changed(self, _event=None) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            self.language_var.set("English" if self.lang == "en" else "日本語")
+            return
+        was_advanced = self.notebook.select() == str(self.advanced_tab)
         self.lang = "en" if self.language_var.get() == "English" else "ja"
         save_language(APP_ID, self.lang)
         self._build()
+        if was_advanced:
+            self.notebook.select(self.advanced_tab)
         if self.config is not None:
             self._render_summary(self.config)
         self.status.set(self.t("定期実行中", "Scheduler running") if self.monitor_thread is not None else self.t("準備完了", "Ready"))
 
     def _browse(self) -> None:
+        if self._once_running or self.monitor_thread is not None:
+            return
         path = filedialog.askopenfilename(
             title=self.t("定期API設定JSONを選択", "Choose Scheduled API JSON"),
             filetypes=[("JSON", "*.json"), (self.t("すべてのファイル", "All files"), "*.*")],
@@ -199,19 +322,60 @@ class ScheduledApiDesktop:
             fn()
         return buffer.getvalue()
 
+    def _revision(self, raw: dict) -> str:
+        # A different selected config file is never approved by an old preview.
+        canonical = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        payload = str(Path(self.config_path.get()).expanduser().resolve()) + "\\n" + canonical
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _preview_complete(self, ok: bool, text: str, status: str, revision: str) -> None:
+        # The user may have edited the JSON while the worker was reading it.
+        # Verify on disk at completion, then allow one future live execution.
+        self.preview_revision = None
+        if ok:
+            try:
+                if self._revision(self._read_raw()) == revision:
+                    self.preview_revision = revision
+                else:
+                    status = self.t("設定変更後は再試運転してください", "Configuration changed: dry-run again")
+            except (OSError, ValueError, RunnerError, json.JSONDecodeError):
+                status = self.t("設定を再確認してください", "Recheck configuration")
+        self._finish(ok, text, status)
+
+    def _preview_ready(self) -> bool:
+        if self.preview_revision is not None and self.config is not None:
+            if self._revision(self.config) == self.preview_revision:
+                return True
+        messagebox.showwarning(
+            self.t("試運転が必要", "Dry Run required"),
+            self.t("この設定で試運転を成功させてから実行してください。",
+                   "Run a successful Dry Run on this exact configuration before sending requests."),
+            parent=self.root,
+        )
+        return False
+
     def _dry_run(self) -> None:
-        if not self._load_config(True):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
             return
         assert self.config is not None
         raw = self.config
+        revision = self._revision(raw)
+        self.preview_revision = None
+        self._once_running = True
+        self.run_btn.configure(state="disabled")
+        self.dry_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
         self.status.set(self.t("確認中…", "Dry Run…"))
 
         def worker() -> None:
             try:
                 text = self._capture(lambda: ScheduledRunner(raw, dry_run=True).run_all_once())
-                self.root.after(0, lambda: self._finish(True, text or "Dry Run OK", self.t("確認完了", "Dry Run complete")))
+                self.root.after(0, lambda t=text: self._preview_complete(
+                    True, t or "Dry Run OK", self.t("確認完了", "Dry Run complete"), revision))
             except Exception as exc:
-                self.root.after(0, lambda: self._finish(False, f"{type(exc).__name__}: {exc}", self.t("確認失敗", "Dry Run failed")))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: self._preview_complete(
+                    False, e, self.t("確認失敗", "Dry Run failed"), revision))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -230,16 +394,24 @@ class ScheduledApiDesktop:
         risk = self.t("\nPOST/PUT/PATCH/DELETEを含む有効ジョブがあります。", "\nEnabled jobs include POST/PUT/PATCH/DELETE.") if self._has_mutating_jobs() else ""
         mode = self.t("定期実行を開始", "Start scheduled execution") if scheduled else self.t("有効ジョブを今すぐ1回実行", "Run enabled jobs once now")
         message = self.t(
-            f"{mode}します。外部APIへ実際に送信されます。{risk}\n\nDry Runと設定確認が済んでいる場合だけ続行してください。",
-            f"{mode}. Real requests will be sent to external APIs.{risk}\n\nContinue only after Dry Run and configuration review.",
+            f"{mode}します。外部APIへ実際に送信されます。{risk}\n更新系リクエストは自動再送しません。手動で再実行すると再送されます。\n\nDry Runと設定確認が済んでいる場合だけ続行してください。",
+            f"{mode}. Real requests will be sent to external APIs.{risk}\nMutating requests are not automatically retried; manual re-runs send them again.\n\nContinue only after Dry Run and configuration review.",
         )
         return messagebox.askyesno(self.t("実API実行", "Live API execution"), message, parent=self.root)
 
     def _live_once(self) -> None:
-        if not self._load_config(True) or not self._confirm_live(False):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
+            return
+        if not self._preview_ready() or not self._confirm_live(False):
             return
         assert self.config is not None
         raw = self.config
+        # Do not retain permission if the remote API acts but the response is lost.
+        self.preview_revision = None
+        self._once_running = True
+        self.run_btn.configure(state="disabled")
+        self.dry_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
         self.status.set(self.t("実API実行中…", "Running live requests…"))
 
         def worker() -> None:
@@ -247,21 +419,31 @@ class ScheduledApiDesktop:
                 text = self._capture(lambda: ScheduledRunner(raw, dry_run=False).run_all_once())
                 self.root.after(0, lambda: self._finish(True, text or "Run OK", self.t("実行完了", "Run complete")))
             except Exception as exc:
-                self.root.after(0, lambda: self._finish(False, f"{type(exc).__name__}: {exc}", self.t("実行失敗", "Run failed")))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: self._finish(
+                    False, e, self.t("実行失敗", "Run failed")))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _finish(self, ok: bool, text: str, status: str) -> None:
+        self._once_running = False
         self._append(text)
         self.status.set(status)
+        if self.monitor_thread is None:
+            self.run_btn.configure(state="normal")
+            self.dry_btn.configure(state="normal")
+            self.start_btn.configure(state="normal")
         if not ok:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
     def _start_scheduler(self) -> None:
-        if not self._load_config(True) or self.monitor_thread is not None or not self._confirm_live(True):
+        if self._once_running or self.monitor_thread is not None or not self._load_config(True):
+            return
+        if not self._preview_ready() or not self._confirm_live(True):
             return
         assert self.config is not None
         raw = self.config
+        self.preview_revision = None
         self.stop_event.clear()
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
@@ -278,7 +460,9 @@ class ScheduledApiDesktop:
                         self.root.after(0, lambda t=text: self._append(t))
                     self.stop_event.wait(runner.poll_seconds)
             except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror(self.t("スケジューラエラー", "Scheduler error"), f"{type(exc).__name__}: {exc}", parent=self.root))
+                error_text = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda e=error_text: messagebox.showerror(
+                    self.t("スケジューラエラー", "Scheduler error"), e, parent=self.root))
             finally:
                 self.root.after(0, self._scheduler_stopped)
 
@@ -298,6 +482,21 @@ class ScheduledApiDesktop:
         self.status.set(self.t("停止しました", "Stopped"))
 
 
+def self_test() -> int:
+    """Verify packaged imports, config generation and no-network Dry Run."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="scheduled-api-self-test-") as d:
+        test_config = make_get_job(
+            root_dir=d, name="Self test GET",
+            url="https://example.com/status", daily_at="09:00",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            ScheduledRunner(test_config, dry_run=True).run_all_once()
+        root = Path(d)
+        if (root / ".state").exists() or (root / "logs").exists():
+            raise RuntimeError("Dry Run unexpectedly wrote to filesystem")
+    return 0
+
 def main() -> None:
     root = tk.Tk()
     ScheduledApiDesktop(root)
@@ -305,4 +504,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["--self-test"]:
+        raise SystemExit(self_test())
     main()
