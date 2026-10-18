@@ -61,9 +61,10 @@ class ScheduledApiDesktop:
         ttk.Label(
             outer,
             text=self.t(
-                "許可したHTTPSホストへ、決められたジョブだけを実行します。秘密値は画面に表示しません。",
-                "Runs only configured jobs against allowed HTTPS hosts. Secret values are not shown in the UI.",
+                "使い方：①設定JSONを選ぶ → ②検証・試運転（外部送信なし）→ ③内容を確認して1回実行、または定期実行。許可したHTTPSホストのみ通信します。",
+                "Start here: 1. Select JSON → 2. Validate and Dry Run (no API requests) → 3. Confirm and run once or schedule. HTTPS allowlisted hosts only.",
             ),
+            wraplength=940,
         ).pack(anchor="w", pady=(0, 14))
 
         cfg = ttk.LabelFrame(outer, text=self.t("設定", "Configuration"), padding=10)
