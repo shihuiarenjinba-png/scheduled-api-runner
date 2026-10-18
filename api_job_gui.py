@@ -63,11 +63,17 @@ class JobWindow(ttk.Frame):
             ('Stop schedule', self.stop_schedule),
         ]):
             ttk.Button(controls, text=label, command=callback).grid(row=0, column=i, padx=4, sticky='w')
-        ttk.Label(self, textvariable=self.status, wraplength=680).grid(row=8, column=0, columnspan=3, sticky='w')
+        task_controls = ttk.Frame(self)
+        task_controls.grid(row=8, column=0, columnspan=3, sticky='w')
+        ttk.Button(task_controls, text='Install Windows daily task',
+                   command=self.install_windows).pack(side='left', padx=4)
+        ttk.Button(task_controls, text='Remove Windows daily task',
+                   command=self.remove_windows).pack(side='left', padx=4)
+        ttk.Label(self, textvariable=self.status, wraplength=680).grid(row=9, column=0, columnspan=3, sticky='w')
         ttk.Label(self, foreground='#555555',
                   text='Local only. Schedule runs while this window is open; no cloud account or silent OS task registration.\n'
                        'A CSV backup is written for each successful update. Review the file before sharing.',
-                  wraplength=690).grid(row=9, column=0, columnspan=3, sticky='w', pady=8)
+                  wraplength=690).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
 
     def _browse(self):
         chosen = filedialog.askopenfilename(title='Select existing CSV', filetypes=[('CSV', '*.csv')])
