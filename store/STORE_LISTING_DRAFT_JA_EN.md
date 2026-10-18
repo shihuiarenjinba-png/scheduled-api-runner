@@ -7,10 +7,10 @@
 **製品名（予約済み）:** Scheduled API Runner
 
 **短い説明:**
-指定したHTTPS APIへのリクエストを、Windows PCから手動または定期実行。設定の試運転・承認に対応。
+許可したHTTPS APIの必要なJSON項目を日付付きCSV履歴に蓄積。試運転・承認・既存データ保護に対応予定。
 
 **長い説明:**
-Scheduled API Runnerは、設定したHTTPS APIを指定時刻に呼び出すWindowsデスクトップツールです。初回画面では保存場所・ジョブ名・URL・時刻を入力し、GETリクエストの設定を作れます。試運転で通信先と設定を確認し、承認後に1回実行または定期実行を開始します。定期実行はアプリが動作している間に限られます。POST等の更新操作、認証ヘッダー、複数ジョブなどの高度な設定は、別途JSON編集が必要です。実際のAPIの接続先と利用権限は利用者が準備します。
+Scheduled API Runnerは、設定したHTTPS APIを指定時刻に呼び出すWindowsデスクトップツールです。初回画面では保存場所・ジョブ名・URL・時刻を入力し、GETリクエストの設定を作れます。試運転で通信先と設定を確認し、承認後に1回実行または定期実行を開始します。アプリ内で開始するスケジューラはアプリの稼働中に動作します。別途、Windowsログオン中の定期GET＋CSV履歴更新用タスクをユーザー承認で登録する機能を開発しています（販売前実機検証中）。POST等の更新操作、認証ヘッダー、複数ジョブなどの高度な設定は、別途JSON編集が必要です。実際のAPIの接続先と利用権限は利用者が準備します。
 
 **動作条件・注意:** User-controlled API endpoints, credentials and network permissions; no hosted service.
 Microsoft Store版の正式な対応OS、アイコン、販売価格、データ宣言、プライバシー/サポートURLは未承認です。第三者の情報・権利・利用規約に従って使用してください。
@@ -18,10 +18,10 @@ Microsoft Store版の正式な対応OS、アイコン、販売価格、データ
 ## English
 
 **Short description:**
-Run approved HTTPS API requests once or on a schedule from Windows, with dry-run validation before live execution.
+Collect authorized HTTPS JSON API values into dated CSV history with dry-run approval and duplicate-date protection.
 
 **Long description:**
-Scheduled API Runner runs explicitly configured HTTPS API requests from your Windows PC. The first-run wizard creates a daily GET check; after an offline Dry Run, you can approve a single run or start the scheduler. Scheduling works while the app is running. Mutating requests, headers, authentication and multi-job workflows require advanced JSON configuration. Users supply their authorized API endpoint and credentials.
+Scheduled API Runner runs explicitly configured HTTPS API requests from your Windows PC. The first-run wizard creates a daily GET check; after an offline Dry Run, you can approve a single run or start the scheduler. The in-app scheduler runs while the app remains open. A separate opt-in Windows interactive-logon task for daily dated GET-to-CSV updates is under validation. Mutating requests, headers, authentication and multi-job workflows require advanced JSON configuration. Users supply their authorized API endpoint and credentials.
 
 **Requirements and limits:** User-controlled API endpoints, credentials and network permissions; no hosted service.
 
