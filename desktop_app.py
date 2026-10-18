@@ -13,6 +13,9 @@ from tkinter import filedialog, messagebox, ttk
 from scheduled_api_runner import RunnerError, ScheduledRunner
 from guided_config import GuidedConfigError, make_get_job, add_daily_csv_output, save_new_config
 from api_data_panel import ApiDataExplorerPanel
+from scheduler_windows_tasks import (
+    WindowsTaskError, register_task, unregister_task, validate_dated_get_config, run_locked_config
+)
 from ui_language import load_language, save_language
 
 APP_ID = "scheduled-api-runner"
@@ -38,6 +41,7 @@ class ScheduledApiDesktop:
         self.config: dict | None = None
         self.monitor_thread: threading.Thread | None = None
         self._once_running = False
+        self._task_busy = False
         self.preview_revision: str | None = None
         self.stop_event = threading.Event()
         self._build()
@@ -132,6 +136,24 @@ class ScheduledApiDesktop:
             wraplength=410,
         ).pack(side="right")
 
+        task_box = ttk.LabelFrame(outer, text=self.t(
+            "Windowsの毎日自動実行（任意）", "Optional Windows daily task"), padding=8)
+        task_box.pack(fill="x", pady=(0, 9))
+        self.task_register_btn = ttk.Button(
+            task_box, text=self.t("Windowsタスクを登録", "Register daily Windows task"),
+            command=self._register_windows_task)
+        self.task_register_btn.pack(side="left", padx=(0, 8))
+        self.task_remove_btn = ttk.Button(
+            task_box, text=self.t("登録したタスクを削除", "Remove registered task"),
+            command=self._remove_windows_task)
+        self.task_remove_btn.pack(side="left", padx=(0, 8))
+        ttk.Label(task_box, text=self.t(
+            "毎日GET＋CSVのみ。ログオン中に実行。設定変更後は再登録。",
+            "GET+CSV only; runs while signed in. Re-register after config changes."),
+            wraplength=430).pack(side="left")
+        if self._task_busy:
+            self.task_register_btn.configure(state="disabled")
+            self.task_remove_btn.configure(state="disabled")
         logbox = ttk.LabelFrame(outer, text=self.t("実行表示", "Audit view"), padding=8)
         logbox.pack(fill="both", expand=True)
         self.log = tk.Text(logbox, wrap="word", height=13, state="disabled", font=("Consolas", 9))
@@ -471,6 +493,73 @@ class ScheduledApiDesktop:
         if not ok:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
+    def _task_complete(self, ok: bool, operation: str, detail: str) -> None:
+        self._task_busy = False
+        self.task_register_btn.configure(state="normal")
+        self.task_remove_btn.configure(state="normal")
+        self.status.set(self.t("Windowsタスク処理完了" if ok else "Windowsタスク処理失敗",
+                               "Windows task updated" if ok else "Windows task operation failed"))
+        if ok:
+            messagebox.showinfo(self.t("Windowsタスク", "Windows Task"), detail, parent=self.root)
+        else:
+            messagebox.showerror(self.t("Windowsタスク", "Windows Task"), detail, parent=self.root)
+
+    def _task_worker(self, operation: str, path: Path, digest: str = "") -> None:
+        self._task_busy = True
+        self.task_register_btn.configure(state="disabled")
+        self.task_remove_btn.configure(state="disabled")
+        self.status.set(self.t("Windowsのタスクを設定中…", "Configuring Windows Task Scheduler…"))
+
+        def work():
+            try:
+                result = register_task(path, expected_sha256=digest) if operation == "add" else unregister_task(path)
+                ok, detail = True, self.t("操作成功：", "Task updated: ") + result
+            except (WindowsTaskError, OSError, ValueError) as exc:
+                ok, detail = False, str(exc)
+            self.root.after(0, lambda: self._task_complete(ok, operation, detail))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _register_windows_task(self) -> None:
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        if not self._load_config(True) or not self._preview_ready():
+            return
+        assert self.config is not None
+        try:
+            when = validate_dated_get_config(self.config)
+            path = Path(self.config_path.get()).expanduser().resolve()
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+        except (WindowsTaskError, ValueError, OSError) as exc:
+            messagebox.showerror(self.t("登録条件", "Task requirements"), str(exc), parent=self.root)
+            return
+        if not messagebox.askyesno(self.t("毎日のAPI取得を登録", "Register daily API task"),
+                self.t(f"毎日{when}にこのGET API設定をWindowsに登録します。"
+                       "ログオン中のみ実行。設定ファイル変更後は自動停止します。"
+                       "既存の同名タスクは上書きしません。続行しますか？",
+                       f"Register this GET API collection every day at {when}? "
+                       "Runs while signed in. Changes to the saved JSON stop future execution. "
+                       "Existing tasks will not be overwritten. Continue?"),
+                parent=self.root):
+            return
+        self.preview_revision = None
+        self._task_worker("add", path, checksum)
+
+    def _remove_windows_task(self) -> None:
+        if self._once_running or self.monitor_thread is not None or self._task_busy:
+            return
+        path_text = self.config_path.get()
+        if not path_text:
+            return
+        path = Path(path_text).expanduser().resolve()
+        if not messagebox.askyesno(
+                self.t("Windowsタスクを削除", "Remove Windows task"),
+                self.t("この設定ファイルに紐づくWindowsタスクを停止・削除しますか？"
+                       "保存済みJSONとCSVファイルは削除しません。",
+                       "Remove the task for this saved config? JSON and CSV files remain."),
+                parent=self.root):
+            return
+        self._task_worker("remove", path)
+
     def _start_scheduler(self) -> None:
         if self._once_running or self.monitor_thread is not None or not self._load_config(True):
             return
@@ -551,4 +640,11 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["--self-test"]:
         raise SystemExit(self_test())
+    if len(sys.argv) == 4 and sys.argv[1] == "--run-locked":
+        try:
+            raise SystemExit(run_locked_config(Path(sys.argv[2]), sys.argv[3]))
+        except (WindowsTaskError, RunnerError, OSError, ValueError, json.JSONDecodeError) as exc:
+            if sys.stderr is not None:
+                print(f"Daily API job failed: {type(exc).__name__}", file=sys.stderr)
+            raise SystemExit(1)
     main()
