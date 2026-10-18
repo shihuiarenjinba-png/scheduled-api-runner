@@ -36,7 +36,7 @@ class GuidedApiSetupTests(unittest.TestCase):
         for url in ("http://example.com", "https://user:pass@example.com",
                     "https://localhost/api", "https://127.0.0.1",
                     "https://192.168.1.1", "https://example.com:444/api",
-                    "https://example.com/#secret", "https://bad host/path"):
+                    "https://example.com/#secret", "https://example.com/?api_key=secret", "https://bad host/path"):
             with self.subTest(url=url), self.assertRaises(GuidedConfigError):
                 https_host(url)
 
