@@ -381,3 +381,40 @@ def save_xlsx(path: str | Path, results: list[dict]) -> Path:
                 ET.SubElement(types, "Override", {"PartName": f"/xl/worksheets/sheet{i}.xml", "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"})
             archive.writestr("[Content_Types].xml", ET.tostring(types, encoding="utf-8", xml_declaration=True))
     return _publish_new(path, write)
+
+
+def suggest_fields(document: object, limit: int = MAX_FIELDS) -> list[str]:
+    """Suggest field paths from a *fetched* sample, without network or guesses.
+
+    Examines the first array element only. Avoid cross-joining unrelated arrays;
+    the UI asks the user to confirm/adjust candidates before a new fetch.
+    """
+    candidates: list[str] = []
+    repeating_prefix: str | None = None
+
+    def walk(node: object, path: str, depth: int) -> None:
+        nonlocal repeating_prefix
+        if len(candidates) >= limit or depth > 6:
+            return
+        if isinstance(node, dict) and node:
+            for key, value in node.items():
+                if (not isinstance(key, str) or not key or
+                        any(ch in key for ch in ".[]= \t\n\r") or len(key) > 60):
+                    continue
+                child = path + "." + key if path else key
+                walk(value, child, depth + 1)
+        elif isinstance(node, list) and node:
+            prefix = path + "[*]"
+            if "[*]" in path:  # the first version cannot join nested arrays
+                return
+            if repeating_prefix is None:
+                repeating_prefix = prefix
+            if repeating_prefix != prefix:
+                return
+            walk(node[0], prefix, depth + 1)
+        elif path and len(path) <= 70:
+            if "[*]" not in path or path.startswith(repeating_prefix or ""):
+                candidates.append(path)
+
+    walk(document, "", 0)
+    return [f"{candidate} = {candidate}" for candidate in candidates[:limit]]
