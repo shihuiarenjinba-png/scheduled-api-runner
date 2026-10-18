@@ -10,6 +10,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
+from api_series_store import validate_writer, SeriesError
 
 
 class GuidedConfigError(ValueError):
@@ -75,6 +76,28 @@ def make_get_job(*, root_dir: str, name: str, url: str, daily_at: str) -> dict:
             "request": {"method": "GET", "url": url.strip(), "timeout_seconds": 20},
         }],
     }
+
+
+def add_daily_csv_output(config: dict, *, path: str, fields: str,
+                         date_path: str = "", on_duplicate: str = "skip") -> dict:
+    """Opt-in extension of an existing GET wizard configuration, no side effects."""
+    if on_duplicate not in {"skip", "replace"}:
+        raise GuidedConfigError("Choose skip or replace for a repeated date")
+    update = {"path": str(path).strip(), "fields": str(fields).strip(),
+              "on_duplicate": on_duplicate}
+    if str(date_path).strip():
+        update["date_path"] = str(date_path).strip()
+    else:
+        update["date_source"] = "run_local"
+    try:
+        validate_writer(update, Path(config["root_dir"]))
+    except SeriesError as exc:
+        raise GuidedConfigError(str(exc)) from exc
+    revised = dict(config)
+    jobs = [dict(job) for job in config["jobs"]]
+    jobs[0]["csv_update"] = update
+    revised["jobs"] = jobs
+    return revised
 
 
 def save_new_config(path: str | Path, config: dict) -> Path:
