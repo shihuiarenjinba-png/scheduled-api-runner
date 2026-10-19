@@ -70,10 +70,12 @@ class PreviewGuardTests(unittest.TestCase):
     def test_bundled_example_is_disabled_before_explicit_user_setup(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build_windows.ps1").read_text(encoding="utf-8")
-        self.assertIn('--add-data "jobs.example.json;."', build)
+        self.assertIn('Resolve-Path (Join-Path $PSScriptRoot "jobs.example.json")', build)
+        self.assertIn('--add-data "$example;."', build)
         sample = json.loads((root / "jobs.example.json").read_text(encoding="utf-8"))
         self.assertTrue(all(job.get("enabled") is False for job in sample["jobs"]))
 
 
 if __name__ == "__main__":
     unittest.main()
+
