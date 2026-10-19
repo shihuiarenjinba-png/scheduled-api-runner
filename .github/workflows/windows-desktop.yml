@@ -16,8 +16,27 @@ jobs:
       - run: pip install -r requirements-build.txt
       - shell: powershell
         run: ./build_windows.ps1
+      - name: Build and verify unsigned Store MSIX draft
+        shell: powershell
+        run: |
+          $candidate = Get-ChildItem -Path dist-validation -Directory | Where-Object {
+            Test-Path -LiteralPath (Join-Path $_.FullName 'ScheduledApiRunner.exe')
+          } | Select-Object -First 1
+          if (-not $candidate) { throw 'ScheduledApiRunner validation payload not found' }
+          ./store/build_msix_draft.ps1 `
+            -ExePath (Join-Path $candidate.FullName 'ScheduledApiRunner.exe') `
+            -OutputDirectory ("store-out-" + $env:GITHUB_RUN_ID)
       - uses: actions/upload-artifact@v4
         with:
           name: ScheduledApiRunner-Windows
-          path: dist-validation/**/*.exe
+          path: |
+            dist-validation/**/*.exe
             dist-validation/**/validation-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScheduledApiRunner-Store-MSIX-UNSIGNED-DRAFT
+          path: |
+            store-out-*/*.msix
+            store-out-*/msix_validation.json
+            store-out-*/msix.sha256.txt
+
