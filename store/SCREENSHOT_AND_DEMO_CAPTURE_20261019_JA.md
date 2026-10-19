@@ -59,22 +59,26 @@ StoreはMSIX提出後に自動セキュリティ/技術/コンテンツ審査を
 
 ## Scheduled API Runner の撮影
 
-操作：①日次GET設定（保存先・JSON抽出項目・日付）→②許可済HTTPSモックAPIのJSON取得結果（左：項目、右：取得値）→③Dry Runと実行承認→④実GET後のCSV更新履歴と結果→⑤Windows日次タスク登録画面。
+撮影元は、検証署名したMSIXをWindowsへインストールし、スタートメニューから起動したアプリに限定する。単体EXEや未インストールの展開物はStore画像の撮影元にしない。
 
-サンプル例:
+操作：①日次GET設定（保存先・JSON抽出項目・日付）→②API項目画面の通信しない設定プレビュー（左：API URL/抽出パス、右：設定内容。取得値ではない）→③Dry Runと実行承認→④所有者が許可したHTTPSテスト環境で別途実GETを行った場合のみCSV更新履歴と結果→⑤Windows日次タスク登録画面。
+
+API項目画面の右側を「取得結果」「通信成功」「取得保証」と説明しない。URLを入力しただけで取得可能と誤認させない。外部通信を伴う撮影は、所有者が利用を許可したテストAPIに限定し、通信日時・応答・生成CSVを別の実行証拠として記録する。
+
+入力・期待値の例（API項目画面のプレビュー自体は通信しない）:
 - 旧CSV: `date,sales,orders\n2026-10-17,112000,37\n2026-10-18,126500,42`
 - HTTPSテストAPI応答: `{"data":{"date":"2026-10-19","sales":141800,"orders":48}}`
 - GUI抽出: `sales = data.sales` / `orders = data.orders`、日付: `data.date`
 - 期待される追記: `2026-10-19,141800,48`
 上記「期待値」は説明用であり、実行結果は実際の保存済みCSVから確認する。
 
-Store画像: `01_home.png`, `02_fields.png`, `03_preview.png`, `04_result.png`, `05_schedule.png`。出力CSVをExcelで開いて新しい行が存在する画像は `evidence/` に保存。
+Store画像: `01_home.png`, `02_api_settings_preview.png`, `03_dry_run.png`, `04_result.png`, `05_schedule.png`。`02_api_settings_preview.png`は通信しない設定確認画面として説明する。`04_result.png`は許可済みテストAPIの実処理が成功した場合だけ採用する。実通信を実施できない場合は、結果画像をStore候補から外し、設定保存や監査ログなど実際に確認できた別画面へ差し替える。出力CSVをExcelで開いて新しい行が存在する画像は `evidence/` に保存。
 
 生のAPIキーやAuthorization値を画像・ログ・GitHubに含めない。既存.xlsxブックの直接編集は販売機能ではないため宣伝しない。Windowsタスク/実サービスを検証していない画面に実行PASSと書かない。
 
 画像説明例:
 - JA「必要なAPI項目と取得時刻を画面で設定」
-- JA「取得したJSON項目を確認してCSV履歴へ連携」
+- JA「API URLとJSON項目を通信せずにプレビュー」
 - JA「試運転と明示的な実行承認で誤操作を防止」
 - JA「既存CSVに日付付きデータを追記」
-- EN "Choose JSON fields and a daily API schedule" / "Append dated values without replacing historical CSV rows".
+- EN "Preview an API URL and JSON field paths without sending a request" / "Append dated values without replacing historical CSV rows".
