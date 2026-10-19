@@ -12,9 +12,10 @@ $stamp = [guid]::NewGuid().ToString("N")
 $dest = Join-Path $PSScriptRoot ("dist-validation\\ScheduledApiRunner-" + $stamp)
 $work = Join-Path $env:TEMP ("ScheduledApiRunner-work-" + $stamp)
 $spec = Join-Path $env:TEMP ("ScheduledApiRunner-spec-" + $stamp)
+$example = (Resolve-Path (Join-Path $PSScriptRoot "jobs.example.json")).Path
 if (Test-Path -LiteralPath $dest) { throw "Validation output already exists" }
 
-python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner --distpath "$dest" --workpath "$work" --specpath "$spec" --add-data "jobs.example.json;." desktop_app.py
+python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner --distpath "$dest" --workpath "$work" --specpath "$spec" --add-data "$example;." desktop_app.py
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
 $exePath = Join-Path $dest "ScheduledApiRunner.exe"
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Wrong EXE entrypoint: $exePath" }
@@ -37,3 +38,4 @@ Write-Host "NON-SALES validation EXE: $exePath; SHA256: $sha"
 
 Write-Host 'Built ScheduledApiRunner.exe after regression and language tests passed.'
 Write-Host 'Before sale: complete SALES_RELEASE_CHECKLIST.md and controlled live-API Windows tests.'
+
