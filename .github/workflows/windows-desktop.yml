@@ -8,7 +8,10 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -32,6 +35,7 @@ jobs:
           path: |
             dist-validation/**/*.exe
             dist-validation/**/validation-manifest.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ScheduledApiRunner-Store-MSIX-UNSIGNED-DRAFT
@@ -39,4 +43,5 @@ jobs:
             store-out-*/*.msix
             store-out-*/msix_validation.json
             store-out-*/msix.sha256.txt
+          if-no-files-found: error
 
