@@ -128,6 +128,11 @@ class StoreIdentityDraftTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "windows-desktop.yml").read_text(encoding="utf-8")
         self.assertIn("store/build_msix_draft.ps1", workflow)
         self.assertIn("ScheduledApiRunner-Store-MSIX-UNSIGNED-DRAFT", workflow)
+        self.assertIn("source_commit = $sourceCommit", builder)
+        self.assertIn("git -C $repoRoot rev-parse HEAD", builder)
+        build_script = (ROOT / "build_windows.ps1").read_text(encoding="utf-8")
+        self.assertIn("source_commit = $sourceCommit", build_script)
+        self.assertIn("git -C $PSScriptRoot rev-parse HEAD", build_script)
 
 
 if __name__ == "__main__":
