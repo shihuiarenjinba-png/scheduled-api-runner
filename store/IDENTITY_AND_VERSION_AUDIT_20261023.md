@@ -40,7 +40,11 @@ The builder uses the version configuration through `store/msix_version.py`; it n
 ## Validation status
 
 - Source migration and regression tests are committed on the existing Draft PR branch only.
-- GitHub Actions after the migration: pending observation; a queued or pre-run failure is not a test pass.
+- GitHub Actions for implementation commit `fbc19c358228916d4a6fb81ec4a0a84cdf5b932b`:
+  - Windows desktop run [39895584228](https://github.com/shihuiarenjinba-png/scheduled-api-runner/actions/runs/39895584228): failed; job `120225167860` had `steps=[]`, and its log endpoint returned `BlobNotFound`.
+  - Reliability PR run [39895584234](https://github.com/shihuiarenjinba-png/scheduled-api-runner/actions/runs/39895584234): all four matrix jobs failed; each inspected job returned `steps=[]`.
+  - Reliability push run [39895580017](https://github.com/shihuiarenjinba-png/scheduled-api-runner/actions/runs/39895580017): four matrix jobs failed. The exact account/runner cause remains unconfirmed.
+  - These failures occurred before observable step execution. They are **not evidence that the new tests failed**, but they also provide no test/build PASS evidence. Root cause remains undiagnosed.
 - Local Windows test execution and fresh MSIX build: not run by this audit session.
 - Fresh MSIX SHA-256: not yet available until a current-head Windows build completes.
 - MSIX install/launch, installed app input/output, restart/persistence, screenshots, and WACK: not tested here.
