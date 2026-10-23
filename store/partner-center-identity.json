@@ -1,15 +1,14 @@
 {
+  "schema_version": 1,
   "product_name": "Scheduled API Runner",
-  "store_product_type": "MSIX or PWA app",
-  "store_status_at_capture": "In draft",
   "store_id": "9PND0HG61XD6",
-  "package_identity_name": "OkinawaDesktopTools.ScheduledAPIRunner",
+  "identity_name": "OkinawaDesktopTools.ScheduledAPIRunner",
   "publisher": "CN=46263F21-A700-41DB-8C9B-114C22FB82FC",
   "publisher_display_name": "Okinawa Desktop Tools",
   "package_family_name": "OkinawaDesktopTools.ScheduledAPIRunner_j8yefg9jgfh58",
-  "initial_msix_version": "0.1.0.0",
+  "store_status_at_capture": "In draft",
   "evidence": "Owner-provided Microsoft Partner Center product identity screenshot, 2026-10-18",
+  "partner_center_rechecked": false,
   "submission_allowed": false,
-  "notes": "Identity reference only. Re-copy all values from Partner Center before any submission. Never upload or sell this unsigned draft."
+  "notes": "Historical capture only; not a live Partner Center recheck. Recopy all values from the existing product's identity page immediately before any submission. Do not create a duplicate Store product."
 }
-

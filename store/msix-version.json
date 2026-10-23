@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "package_format": "msix",
+  "package_kind": "packaged_classic_desktop",
+  "internal_app_version": null,
+  "internal_app_version_status": "NOT_DEFINED_IN_SOURCE",
+  "legacy_initial_msix_version": "0.1.0.0",
+  "msix_package_version": "1.0.0.0",
+  "msix_package_version_status": "TECHNICAL_DRAFT_ONLY_PUBLIC_RELEASE_HOLD",
+  "previous_store_accepted_version": null,
+  "store_version_history_verified": false,
+  "store_submission_allowed": false,
+  "version_rule_source": "https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements",
+  "notes": "The legacy 0.1.0.0 value is retained only for history: Microsoft Store Windows 10/11 package guidance says the first version component cannot be 0 and the fourth component is reserved for Store use and must be 0. 1.0.0.0 is only a technical draft-build candidate. The internal app version is not defined in the current source, and the previously accepted Store package version has not been independently verified. Public release and submission remain on hold."
+}

@@ -1,27 +1,46 @@
 # Windows Store MSIX draft builder — NEVER publish this candidate directly.
 param(
     [Parameter(Mandatory=$true)][string]$ExePath,
-    [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [string]$Version = ""
+    [Parameter(Mandatory=$true)][string]$OutputDirectory
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$identity = Get-Content -LiteralPath (Join-Path $PSScriptRoot "product_identity.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($identity.store_id -cne "9PND0HG61XD6" -or
-    $identity.package_identity_name -cne "OkinawaDesktopTools.ScheduledAPIRunner" -or
+
+$identityPath = Join-Path $PSScriptRoot "partner-center-identity.json"
+if (-not (Test-Path -LiteralPath $identityPath -PathType Leaf)) {
+    throw "Canonical Partner Center identity file is missing: $identityPath"
+}
+$identity = Get-Content -LiteralPath $identityPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($identity.schema_version -ne 1 -or
+    $identity.store_id -cne "9PND0HG61XD6" -or
+    $identity.identity_name -cne "OkinawaDesktopTools.ScheduledAPIRunner" -or
     $identity.publisher -cne "CN=46263F21-A700-41DB-8C9B-114C22FB82FC" -or
     $identity.publisher_display_name -cne "Okinawa Desktop Tools" -or
-    $identity.store_status_at_capture -cne "In draft" -or
-    $identity.submission_allowed -ne $false) {
-    throw "Store product identity/approval mismatch: abort"
+    $identity.package_family_name -cne "OkinawaDesktopTools.ScheduledAPIRunner_j8yefg9jgfh58" -or
+    $identity.submission_allowed -ne $false -or
+    $identity.partner_center_rechecked -isnot [bool]) {
+    throw "Canonical Partner Center identity/approval mismatch: abort"
 }
-if (-not $Version) { $Version = [string]$identity.initial_msix_version }
-if ($Version -notmatch '^\d+\.\d+\.\d+\.0$') { throw "Expected a four-part MSIX version ending in .0" }
-foreach ($v in $Version.Split('.')) {
-    [int]$number = 0
-    if (-not [int]::TryParse($v,[ref]$number) -or $number -gt 65535) { throw "Version component out of range" }
+
+$versionTool = Join-Path $PSScriptRoot "msix_version.py"
+if (-not (Test-Path -LiteralPath $versionTool -PathType Leaf)) {
+    throw "MSIX version validator is missing: $versionTool"
 }
+$versionOutput = & python $versionTool --json
+if ($LASTEXITCODE -ne 0) {
+    throw "MSIX version configuration validation failed; no fallback to internal version is permitted."
+}
+try {
+    $versionConfig = ($versionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+} catch {
+    throw "MSIX version validator returned invalid JSON: $($_.Exception.Message)"
+}
+$Version = [string]$versionConfig.msix_package_version
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    throw "Explicit msix_package_version is missing; refusing to build."
+}
+
 $exe = if ([IO.Path]::IsPathRooted($ExePath)) { $ExePath } else { Join-Path $repoRoot $ExePath }
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Missing EXE: $exe" }
 $out = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -33,7 +52,7 @@ $unpack = Join-Path $out "msix-roundtrip"
 New-Item -ItemType Directory -Path (Join-Path $stage "Assets") -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination (Join-Path $stage "ScheduledApiRunner.exe")
 $manifestText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "AppxManifest.template.xml") -Raw -Encoding UTF8
-$manifestText = $manifestText.Replace("__PACKAGE_IDENTITY_NAME__", [string]$identity.package_identity_name).Replace(
+$manifestText = $manifestText.Replace("__PACKAGE_IDENTITY_NAME__", [string]$identity.identity_name).Replace(
     "__PUBLISHER__", [string]$identity.publisher).Replace(
     "__PUBLISHER_DISPLAY_NAME__", [string]$identity.publisher_display_name).Replace("__VERSION__", $Version)
 if ($manifestText -match '__[A-Z_]+__') { throw "Unresolved manifest template placeholder" }
@@ -65,7 +84,7 @@ function Assert-Manifest([string]$Path) {
     $ns = [Xml.XmlNamespaceManager]::new($xml.NameTable)
     $ns.AddNamespace("f","http://schemas.microsoft.com/appx/manifest/foundation/windows10")
     $element = $xml.SelectSingleNode("/f:Package/f:Identity",$ns)
-    if ($null -eq $element -or $element.Name -cne [string]$identity.package_identity_name -or
+    if ($null -eq $element -or $element.Name -cne [string]$identity.identity_name -or
         $element.Publisher -cne [string]$identity.publisher -or $element.Version -cne $Version -or
         $element.ProcessorArchitecture -cne "x64") { throw "Manifest Identity does not match Partner Center" }
     $app = $xml.SelectSingleNode("/f:Package/f:Applications/f:Application",$ns)
@@ -97,11 +116,17 @@ $unpackedSha = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $unpack "
 if ($sourceSha -cne $unpackedSha) { throw "MSIX EXE hash changed after pack/unpack" }
 $packageSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $msix).Hash.ToLowerInvariant()
 $report = [ordered]@{
-    store_id = [string]$identity.store_id; identity_name = [string]$identity.package_identity_name
+    store_id = [string]$identity.store_id; identity_name = [string]$identity.identity_name
     identity_publisher = [string]$identity.publisher; msix_file = $msixName; msix_version = $Version
+    identity_record_source = [string]$identity.evidence
+    partner_center_rechecked = [bool]$identity.partner_center_rechecked
+    internal_app_version = $versionConfig.internal_app_version
+    msix_package_version_status = [string]$versionConfig.msix_package_version_status
+    previous_store_accepted_version = $versionConfig.previous_store_accepted_version
+    store_version_history_verified = [bool]$versionConfig.store_version_history_verified
     source_exe_sha256 = $sourceSha; unpacked_exe_sha256 = $unpackedSha; msix_sha256 = $packageSha
     manifest_identity_verified = $true; makeappx_pack_unpack = "PASS"; signed = $false
-    approved_logo = $false; manual_windows_acceptance = $false; store_submission_approved = $false; sale_approved = $false
+    approved_logo = $false; manual_windows_acceptance = $false; store_submission_approved = $false; sale_approved = $false; public_release_approved = $false
 }
 $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out "msix_validation.json") -Encoding UTF8
 "$packageSha  $msixName" | Set-Content -LiteralPath (Join-Path $out "msix.sha256.txt") -Encoding ASCII
