@@ -154,5 +154,17 @@ class StoreIdentityDraftTests(unittest.TestCase):
 
 
 
+    def test_windows_workflow_verifies_unsigned_msix_evidence(self):
+        workflow = (ROOT / ".github" / "workflows" / "windows-desktop.yml").read_text(encoding="utf-8")
+        for required in (
+            "MSIX source commit mismatch",
+            "MSIX SHA-256 mismatch",
+            "EXE roundtrip SHA-256 mismatch",
+            "MSIX checksum file mismatch",
+            "MSIX candidate unexpectedly marked approved",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow)
+
 if __name__ == "__main__":
     unittest.main()
