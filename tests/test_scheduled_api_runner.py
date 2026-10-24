@@ -69,6 +69,7 @@ class ScheduledRunnerTests(unittest.TestCase):
             with sqlite3.connect(state) as con:
                 con.execute("CREATE TABLE run_keys (run_key TEXT PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
                 con.execute("INSERT INTO run_keys(run_key) VALUES ('legacy-key')")
+            con.close()
             runner = ScheduledRunner(config(root))
             self.assertFalse(runner._begin_run("legacy-key"))
 
@@ -82,3 +83,4 @@ class ScheduledRunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

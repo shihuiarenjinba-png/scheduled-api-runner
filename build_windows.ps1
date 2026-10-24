@@ -1,5 +1,10 @@
 $ErrorActionPreference = 'Stop'
 
+$sourceCommit = (& git -C $PSScriptRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
+    throw 'Unable to resolve exact source commit for validation build.'
+}
+
 python -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw 'pip upgrade failed.' }
 python -m pip install -r requirements-build.txt
@@ -12,9 +17,10 @@ $stamp = [guid]::NewGuid().ToString("N")
 $dest = Join-Path $PSScriptRoot ("dist-validation\\ScheduledApiRunner-" + $stamp)
 $work = Join-Path $env:TEMP ("ScheduledApiRunner-work-" + $stamp)
 $spec = Join-Path $env:TEMP ("ScheduledApiRunner-spec-" + $stamp)
+$example = (Resolve-Path (Join-Path $PSScriptRoot "jobs.example.json")).Path
 if (Test-Path -LiteralPath $dest) { throw "Validation output already exists" }
 
-python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner --distpath "$dest" --workpath "$work" --specpath "$spec" --add-data "jobs.example.json;." desktop_app.py
+python -m PyInstaller --clean --noconfirm --onefile --windowed --name ScheduledApiRunner --distpath "$dest" --workpath "$work" --specpath "$spec" --add-data "$example;." desktop_app.py
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
 $exePath = Join-Path $dest "ScheduledApiRunner.exe"
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Wrong EXE entrypoint: $exePath" }
@@ -24,6 +30,7 @@ $sha = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvari
 $report = [ordered]@{
     exe = "ScheduledApiRunner.exe"
     source_entrypoint = "desktop_app.py"
+    source_commit = $sourceCommit
     sha256 = $sha
     packaged_no_network_self_test = "PASS"
     interactive_windows_qa = $false

@@ -8,7 +8,24 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Validate PowerShell build script syntax
+        shell: powershell
+        run: |
+          foreach ($scriptPath in @("build_windows.ps1", "store/build_msix_draft.ps1")) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $scriptPath).Path, [ref]$tokens, [ref]$parseErrors
+            )
+            if ($parseErrors.Count -gt 0) {
+              $details = ($parseErrors | ForEach-Object { $_.Message }) -join " | "
+              throw "PowerShell parsing failed for $($scriptPath): $details"
+            }
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -16,8 +33,49 @@ jobs:
       - run: pip install -r requirements-build.txt
       - shell: powershell
         run: ./build_windows.ps1
+      - name: Build and verify unsigned Store MSIX draft
+        shell: powershell
+        run: |
+          $candidate = Get-ChildItem -Path dist-validation -Directory | Where-Object {
+            Test-Path -LiteralPath (Join-Path $_.FullName 'ScheduledApiRunner.exe')
+          } | Select-Object -First 1
+          if (-not $candidate) { throw 'ScheduledApiRunner validation payload not found' }
+          ./store/build_msix_draft.ps1 `
+            -ExePath (Join-Path $candidate.FullName 'ScheduledApiRunner.exe') `
+            -OutputDirectory ("store-out-" + $env:GITHUB_RUN_ID)
+      - name: Verify MSIX source commit, identity evidence and SHA-256
+        shell: powershell
+        run: |
+          $outputDir = "store-out-$env:GITHUB_RUN_ID"
+          $reportFile = Join-Path $outputDir "msix_validation.json"
+          if (-not (Test-Path -LiteralPath $reportFile -PathType Leaf)) { throw "MSIX validation report missing" }
+          $report = Get-Content -LiteralPath $reportFile -Raw | ConvertFrom-Json
+          $actualCommit = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $report.source_commit -cne $actualCommit) { throw "MSIX source commit mismatch" }
+          if (-not $report.manifest_identity_verified -or $report.makeappx_pack_unpack -cne "PASS") { throw "MSIX roundtrip verification failed" }
+          if ($report.signed -or $report.sale_approved -or $report.store_submission_approved) { throw "MSIX candidate unexpectedly marked approved" }
+          $msixFile = Join-Path $outputDir ([string]$report.msix_file)
+          if (-not (Test-Path -LiteralPath $msixFile -PathType Leaf)) { throw "MSIX package missing" }
+          $actualHash = (Get-FileHash -LiteralPath $msixFile -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($report.msix_sha256 -cne $actualHash) { throw "MSIX SHA-256 mismatch" }
+          if ($report.source_exe_sha256 -cne $report.unpacked_exe_sha256) { throw "EXE roundtrip SHA-256 mismatch" }
+          $shaFile = Join-Path $outputDir "msix.sha256.txt"
+          if (-not (Test-Path -LiteralPath $shaFile -PathType Leaf)) { throw "MSIX checksum file missing" }
+          $recordedHashLine = (Get-Content -LiteralPath $shaFile -Raw).Trim()
+          if ($recordedHashLine -cne "$actualHash  $($report.msix_file)") { throw "MSIX checksum file mismatch" }
       - uses: actions/upload-artifact@v4
         with:
           name: ScheduledApiRunner-Windows
-          path: dist-validation/**/*.exe
+          path: |
+            dist-validation/**/*.exe
             dist-validation/**/validation-manifest.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScheduledApiRunner-Store-MSIX-UNSIGNED-DRAFT
+          path: |
+            store-out-*/*.msix
+            store-out-*/msix_validation.json
+            store-out-*/msix.sha256.txt
+          if-no-files-found: error
+

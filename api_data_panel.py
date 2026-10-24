@@ -1,4 +1,4 @@
-"""Bilingual split-pane GUI for manual JSON API fetch and local data exports."""
+"""Bilingual split-pane GUI for an offline JSON API configuration preview."""
 from __future__ import annotations
 
 import hashlib
@@ -15,17 +15,36 @@ from api_data_explorer import (
 
 
 def _blank() -> dict:
-    return {"name": "API 1", "url": "https://example.com/data",
-            "fields": "name = data.name\nvalue = data.value",
+    return {"name": "API 1", "url": "",
+            "fields": "sales = data.sales\norders = data.orders",
             "header_name": ""}
 
 
-class ApiDataExplorerPanel(ttk.Frame):
-    """A user chooses API URLs and JSON fields on the left; reads output on right.
+def build_offline_preview(source: dict) -> dict:
+    """Build a secret-free settings preview without DNS or HTTP access."""
+    validated = validate_sources([source])[0]
+    rows = []
+    for raw_line in validated["fields"].splitlines():
+        if not raw_line.strip():
+            continue
+        label, sep, path = raw_line.partition("=")
+        label = label.strip()
+        path = path.strip() if sep else label
+        rows.append({"label": label, "json_path": path})
+    host, _request_target = validate_url(validated["url"])
+    return {
+        "name": validated["name"],
+        "entered_url": validated["url"],
+        "https_host": host,
+        "fields": rows,
+        "authentication_header": validated.get("header_name") or None,
+        "network_request": "not sent / 通信なし",
+        "retrieval_guaranteed": False,
+    }
 
-    The configuration preview is completely offline. Live GET is separate and
-    requires approval for the exact currently visible form revision.
-    """
+
+class ApiDataExplorerPanel(ttk.Frame):
+    """Let a user review API URL and JSON-path settings without network access."""
 
     def __init__(self, master, *, japanese: bool, initial_sources=None, on_schedule_source=None):
         super().__init__(master)
@@ -38,6 +57,7 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.preview_revision: str | None = None
         self.result_revision: str | None = None
         self.results: list[dict] = []
+        self.preview_sources: list[dict] = []
         self.messages: queue.Queue = queue.Queue()
         self._render()
         self._show_source(0)
@@ -55,13 +75,13 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.rowconfigure(1, weight=1)
 
         header = ttk.Label(self, text=self.t(
-            "APIデータ取得：左で設定 → 試運転 → 取得 → 右で確認・保存",
-            "API data explorer: configure left → preview → fetch → review/save right"),
+            "API設定プレビュー：左にURLと項目を入力 → 右で内容を確認（通信なし）",
+            "API configuration preview: enter URL and fields on the left → review on the right (offline)"),
             font=("Segoe UI", 12, "bold"))
         header.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 4))
-        left = ttk.LabelFrame(self, text=self.t("① 接続先と欲しいJSON項目", "1. API sources and JSON fields"), padding=10)
+        left = ttk.LabelFrame(self, text=self.t("① API URLと取得したいJSON項目", "1. API URL and desired JSON fields"), padding=10)
         left.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=5)
-        right = ttk.LabelFrame(self, text=self.t("② 取得したデータ", "2. Fetched data"), padding=10)
+        right = ttk.LabelFrame(self, text=self.t("② 設定プレビュー（通信なし）", "2. Configuration preview (offline)"), padding=10)
         right.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=5)
         left.columnconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
@@ -107,8 +127,7 @@ class ApiDataExplorerPanel(ttk.Frame):
         actions.grid(row=13, column=0, sticky="ew", pady=4)
         self.preview_btn = ttk.Button(actions, text=self.t("設定を試運転", "Offline preview"), command=self._preview)
         self.preview_btn.pack(side="left")
-        self.fetch_btn = ttk.Button(actions, text=self.t("データを取得", "Fetch GET"), command=self._fetch)
-        self.fetch_btn.pack(side="left", padx=5)
+        self.fetch_btn = None
         if self.on_schedule_source is not None:
             ttk.Button(
                 left,
@@ -121,24 +140,22 @@ class ApiDataExplorerPanel(ttk.Frame):
         ttk.Button(files, text=self.t("テンプレ保存", "Save template"), command=self._save_template).pack(side="left")
         ttk.Button(files, text=self.t("テンプレ読込", "Load template"), command=self._load_template).pack(side="left", padx=6)
         ttk.Label(left, text=self.t(
-            "試運転は通信しません。取得は明示的なGETのみ・自動再送なし。\n"
-            "この画面の取得は手動です。旧定期実行は別タブです。",
-            "Preview is offline. Fetch sends explicit GET only, without retries.\n"
-            "This view fetches manually; legacy scheduling stays in its own tab."),
+            "この画面は設定内容だけをプレビューし、API通信は行いません。\n"
+            "実際に取得できるかはAPI提供元の仕様・権限・応答状態により異なります。",
+            "This screen previews configuration only and never contacts the API.\n"
+            "Availability depends on the provider, permissions, and current API response."),
             wraplength=360).grid(row=15, column=0, sticky="w", pady=(8, 0))
 
         ttk.Label(right, text=self.t(
-            "取得後、APIごとに結果を表示します。数値はExcel内でも数値、文字列は文字列として保持。",
-            "Results appear per API; numbers stay numeric in Excel, text stays text."),
+            "入力したURL・表示名・JSONパスを確認します。接続可否や取得成功を保証する表示ではありません。",
+            "Review the entered URL, labels, and JSON paths. This does not verify connectivity or guarantee retrieval."),
             wraplength=530).grid(row=0, column=0, sticky="w")
         selector = ttk.Frame(right)
         selector.grid(row=1, column=0, sticky="ew", pady=5)
         selector.columnconfigure(0, weight=1)
         self.result_source = ttk.Combobox(selector, state="readonly")
         self.result_source.grid(row=0, column=0, sticky="ew")
-        self.result_source.bind("<<ComboboxSelected>>", self._show_result)
-        ttk.Button(selector, text=self.t("項目候補を左へ", "Suggest fields →"),
-                   command=self._suggest_from_json).grid(row=0, column=1, padx=(5, 0))
+        self.result_source.bind("<<ComboboxSelected>>", self._show_preview)
         self.table = ttk.Treeview(right, show="headings", height=10)
         self.table.grid(row=2, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(right, orient="horizontal", command=self.table.xview)
@@ -147,15 +164,8 @@ class ApiDataExplorerPanel(ttk.Frame):
         self.raw_view = tk.Text(right, height=7, wrap="word")
         self.raw_view.grid(row=4, column=0, sticky="nsew", pady=(6, 2))
         self.raw_view.configure(state="disabled")
-        exports = ttk.Frame(right)
-        exports.grid(row=5, column=0, sticky="w", pady=4)
-        ttk.Button(exports, text=self.t("Excel保存", "Save Excel .xlsx"),
-                   command=lambda: self._export("xlsx")).pack(side="left")
-        ttk.Button(exports, text=self.t("文字列保存", "Save text .txt"),
-                   command=lambda: self._export("txt")).pack(side="left", padx=4)
-        ttk.Button(exports, text=self.t("元JSON保存", "Save JSON"),
-                   command=lambda: self._export("json")).pack(side="left")
-        self.status = tk.StringVar(value=self.t("設定してください（通信なし）", "Ready (no network)"))
+        self.status = tk.StringVar(value=self.t("URLと項目を入力して設定を試運転してください（通信なし）",
+                                                "Enter a URL and fields, then run the offline preview"))
         ttk.Label(self, textvariable=self.status, wraplength=850).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 10))
 
@@ -229,17 +239,41 @@ class ApiDataExplorerPanel(ttk.Frame):
             return
         try:
             revision = self._current_revision()
+            validated = validate_sources(self.sources)
         except (ExplorerError, ValueError) as exc:
             messagebox.showerror(self.t("設定エラー", "Invalid configuration"), str(exc), parent=self)
             return
         self.preview_revision = revision
         self.result_revision = None
         self.results = []
-        self.result_source.configure(values=[])
+        self.preview_sources = validated
+        self.result_source.configure(values=[item["name"] for item in validated])
         self._clear_result()
+        self.result_source.current(0)
+        self._show_preview()
         self.status.set(self.t(
-            f"設定確認OK：{len(self.sources)}件。通信なし。内容を確認して「データを取得」へ。",
-            f"Preview OK: {len(self.sources)} API(s). No network call. Confirm and fetch."))
+            f"設定プレビューOK：{len(self.sources)}件。API通信は行っていません。",
+            f"Preview ready: {len(self.sources)} API(s). No network request was sent."))
+
+    def _show_preview(self, _event=None) -> None:
+        if not self.preview_sources:
+            return
+        index = self.result_source.current()
+        if not 0 <= index < len(self.preview_sources):
+            return
+        source = self.preview_sources[index]
+        preview = build_offline_preview(source)
+        self._clear_result()
+        self.table.configure(columns=("label", "path"))
+        self.table.heading("label", text=self.t("表示名", "Label"))
+        self.table.heading("path", text=self.t("JSONパス", "JSON path"))
+        self.table.column("label", width=180, minwidth=100, stretch=True)
+        self.table.column("path", width=300, minwidth=160, stretch=True)
+        for item in preview["fields"]:
+            self.table.insert("", "end", values=(item["label"], item["json_path"]))
+        self.raw_view.configure(state="normal")
+        self.raw_view.insert("1.0", json.dumps(preview, ensure_ascii=False, indent=2))
+        self.raw_view.configure(state="disabled")
 
     def _fetch(self) -> None:
         if self.busy:
@@ -268,7 +302,8 @@ class ApiDataExplorerPanel(ttk.Frame):
         self._clear_result()
         self.busy = True
         self.preview_btn.configure(state="disabled")
-        self.fetch_btn.configure(state="disabled")
+        if self.fetch_btn is not None:
+            self.fetch_btn.configure(state="disabled")
         self.status.set(self.t("取得中…", "Fetching…"))
         sources = [dict(s) for s in self.sources]
         tokens = dict(self.tokens)
@@ -298,7 +333,8 @@ class ApiDataExplorerPanel(ttk.Frame):
             return
         self.busy = False
         self.preview_btn.configure(state="normal")
-        self.fetch_btn.configure(state="normal")
+        if self.fetch_btn is not None:
+            self.fetch_btn.configure(state="normal")
         try:
             unchanged = self._current_revision() == revision
         except (ExplorerError, ValueError):
@@ -448,3 +484,4 @@ class ApiDataExplorerPanel(ttk.Frame):
         self._show_source(0)
         self.status.set(self.t("設定を読み込みました。試運転してください。",
                                "Template loaded; run offline preview."))
+

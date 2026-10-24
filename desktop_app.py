@@ -31,7 +31,7 @@ class ScheduledApiDesktop:
         self.config_path = tk.StringVar()
         self.guide_root = tk.StringVar()
         self.guide_name = tk.StringVar(value="Daily API data")
-        self.guide_url = tk.StringVar(value="https://example.com/api/data")
+        self.guide_url = tk.StringVar(value="")
         self.guide_at = tk.StringVar(value="09:00")
         self.guide_csv_enabled = tk.BooleanVar(value=True)
         self.guide_csv_path = tk.StringVar(value="daily-sales.csv")
@@ -70,7 +70,7 @@ class ScheduledApiDesktop:
         self.guide_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.guide_tab, text=self.t("① 毎日CSV取得の設定", "1. Daily CSV setup"))
-        self.notebook.add(self.explorer_tab, text=self.t("② API項目を調べる", "2. Inspect API fields"))
+        self.notebook.add(self.explorer_tab, text=self.t("② API設定プレビュー", "2. API setup preview"))
         self.notebook.add(self.advanced_tab, text=self.t("③ 試運転・実行", "3. Preview / Run"))
         self.explorer = ApiDataExplorerPanel(
             self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer,
@@ -198,10 +198,10 @@ class ScheduledApiDesktop:
         guide_lang.bind("<<ComboboxSelected>>", self._guide_language_changed)
         ttk.Label(pane, text=self.t(
             "APIから今日の数値を取得し、昨日までのCSVデータに日付ごとに追記します。\n"
-            "使い方：①保存先・API URL・JSON項目・時刻を指定 → ②必要ならAPI項目を調べる "
+            "使い方：①保存先・API URL・JSON項目・時刻を指定 → ②通信しない設定プレビューで確認 "
             "→ ③設定を保存 → ④試運転 → ⑤承認して実行またはWindowsタスク登録。",
             "Fetch daily API values and append one dated row to your existing CSV history.\n"
-            "1. Set destination, HTTPS URL, JSON fields and time. 2. Inspect API fields if needed. "
+            "1. Set destination, HTTPS URL, JSON fields and time. 2. Review the offline configuration preview. "
             "3. Save. 4. Dry Run. 5. Approve live execution or optional Windows task.",
         ), wraplength=880, justify="left").pack(anchor="w", pady=(0, 16))
         group = ttk.LabelFrame(pane, text=self.t("① API取得とCSV履歴を設定", "1. API and CSV history setup"), padding=12)
@@ -711,3 +711,4 @@ if __name__ == "__main__":
                 print(f"Daily API job failed: {type(exc).__name__}", file=sys.stderr)
             raise SystemExit(1)
     main()
+

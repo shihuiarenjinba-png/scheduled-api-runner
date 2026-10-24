@@ -30,3 +30,8 @@ The draft branch includes a joined beginner workflow: manually inspect JSON fiel
 7. Keep Partner Center in a draft. Do not upload or submit for certification until acceptance is signed off and the owner explicitly authorizes it.
 
 **Result today: STORE PRODUCT FRAME CREATED; SOURCE WORK IN DRAFT; COMMERCIAL RELEASE HOLD.**
+
+
+## Repository identity source update — 2026-10-23
+
+The canonical repository record is now `store/partner-center-identity.json`. It preserves the owner-provided 2026-10-18 screenshot values but explicitly records `partner_center_rechecked: false`. It is not proof of a live Partner Center recheck. Re-copy the fields from the existing Store product immediately before any submission. The product remains on submission hold.
