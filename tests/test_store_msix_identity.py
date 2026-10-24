@@ -141,8 +141,7 @@ class StoreIdentityDraftTests(unittest.TestCase):
         for relative in ("build_windows.ps1", "store/build_msix_draft.ps1"):
             with self.subTest(script=relative):
                 script = (ROOT / relative).read_text(encoding="utf-8")
-                guard = "if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-fA-F]{40}
-) {"
+                guard = "if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-fA-F]{40}$') {"
                 self.assertEqual(script.count(guard), 1)
                 self.assertEqual(script.count("$sourceCommit = (& git -C "), 1)
                 self.assertEqual(script.count("source_commit = $sourceCommit"), 1)
