@@ -69,9 +69,9 @@ class ScheduledApiDesktop:
         self.explorer_tab = ttk.Frame(self.notebook)
         self.guide_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.guide_tab, text=self.t("① 毎日CSV取得の設定", "1. Daily CSV setup"))
-        self.notebook.add(self.explorer_tab, text=self.t("② API設定プレビュー", "2. API setup preview"))
-        self.notebook.add(self.advanced_tab, text=self.t("③ 試運転・実行", "3. Preview / Run"))
+        self.notebook.add(self.guide_tab, text=self.t("① かんたん設定", "1. Quick setup"))
+        self.notebook.add(self.explorer_tab, text=self.t("② 取得内容を確認", "2. Review API data"))
+        self.notebook.add(self.advanced_tab, text=self.t("③ 試運転・実行", "3. Preview & run"))
         self.explorer = ApiDataExplorerPanel(
             self.explorer_tab, japanese=self.lang == 'ja', initial_sources=saved_explorer,
             on_schedule_source=self._use_explorer_source)
@@ -88,23 +88,23 @@ class ScheduledApiDesktop:
         combo.pack(side="right")
         combo.bind("<<ComboboxSelected>>", self._language_changed)
 
-        ttk.Label(outer, text=self.t("定期API実行", "Scheduled API Runner"), font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        ttk.Label(outer, text=self.t("APIデータ自動取得", "Scheduled API Runner"), font=("Segoe UI", 18, "bold")).pack(anchor="w")
         ttk.Label(
             outer,
             text=self.t(
-                "使い方：①設定JSONを選ぶ → ②検証・試運転（外部送信なし）→ ③内容を確認して1回実行、または定期実行。許可したHTTPSホストのみ通信します。",
-                "Start here: 1. Select JSON → 2. Validate and Dry Run (no API requests) → 3. Confirm and run once or schedule. HTTPS allowlisted hosts only.",
+                "使い方：①保存した設定を選ぶ → ②通信せずに試運転 → ③結果を確認して今すぐ1回取得、または自動取得を開始します。",
+                "Start here: 1. Choose a saved setup → 2. Preview without sending requests → 3. Review the result, then run once or start automatic runs.",
             ),
             wraplength=940,
         ).pack(anchor="w", pady=(0, 14))
 
-        cfg = ttk.LabelFrame(outer, text=self.t("設定", "Configuration"), padding=10)
+        cfg = ttk.LabelFrame(outer, text=self.t("保存した設定", "Saved setup"), padding=10)
         cfg.pack(fill="x", pady=(0, 10))
         ttk.Entry(cfg, textvariable=self.config_path).pack(side="left", fill="x", expand=True)
-        ttk.Button(cfg, text=self.t("選択", "Browse"), command=self._browse).pack(side="left", padx=(8, 0))
-        ttk.Button(cfg, text=self.t("検証", "Validate"), command=lambda: self._load_config(True)).pack(side="left", padx=(6, 0))
+        ttk.Button(cfg, text=self.t("設定を選ぶ", "Choose setup"), command=self._browse).pack(side="left", padx=(8, 0))
+        ttk.Button(cfg, text=self.t("内容を確認", "Check setup"), command=lambda: self._load_config(True)).pack(side="left", padx=(6, 0))
 
-        info = ttk.LabelFrame(outer, text=self.t("ジョブ概要", "Jobs"), padding=8)
+        info = ttk.LabelFrame(outer, text=self.t("取得する内容", "Data jobs"), padding=8)
         info.pack(fill="both", expand=True, pady=(0, 10))
         cols = ("name", "schedule", "method", "host", "enabled")
         self.jobs = ttk.Treeview(info, columns=cols, show="headings", height=8)
@@ -120,27 +120,27 @@ class ScheduledApiDesktop:
         self.host_label = ttk.Label(info, text="")
         self.host_label.pack(anchor="w", pady=(8, 0))
 
-        actions = ttk.LabelFrame(outer, text=self.t("実行", "Execution"), padding=10)
+        actions = ttk.LabelFrame(outer, text=self.t("試運転してから実行", "Preview before running"), padding=10)
         actions.pack(fill="x", pady=(0, 10))
-        self.dry_btn = ttk.Button(actions, text=self.t("全ジョブ確認（Dry Run）", "Dry Run All"), command=self._dry_run)
+        self.dry_btn = ttk.Button(actions, text=self.t("通信せずに確認", "Preview without sending"), command=self._dry_run)
         self.dry_btn.pack(side="left")
-        self.run_btn = ttk.Button(actions, text=self.t("有効ジョブを1回実行", "Run Enabled Once"), command=self._live_once)
+        self.run_btn = ttk.Button(actions, text=self.t("今すぐ1回取得", "Run once now"), command=self._live_once)
         self.run_btn.pack(side="left", padx=6)
-        self.start_btn = ttk.Button(actions, text=self.t("定期実行開始", "Start Scheduler"), command=self._start_scheduler)
+        self.start_btn = ttk.Button(actions, text=self.t("自動取得を開始", "Start automatic runs"), command=self._start_scheduler)
         self.start_btn.pack(side="left")
-        self.stop_btn = ttk.Button(actions, text=self.t("停止", "Stop"), command=self._stop_scheduler, state="disabled")
+        self.stop_btn = ttk.Button(actions, text=self.t("自動取得を停止", "Stop automatic runs"), command=self._stop_scheduler, state="disabled")
         self.stop_btn.pack(side="left", padx=6)
         ttk.Label(
             actions,
             text=self.t(
-                "Live実行は外部APIへ実際に送信します。先にDry Runを実行してください。",
-                "Live execution sends real requests to external APIs. Run Dry Run first.",
+                "本実行ではAPIへ実際に通信します。最初に「通信せずに確認」を実行してください。",
+                "A real run sends API requests. Use Preview without sending first.",
             ),
             wraplength=410,
         ).pack(side="right")
 
         task_box = ttk.LabelFrame(outer, text=self.t(
-            "Windowsの毎日自動実行（任意）", "Optional Windows daily task"), padding=8)
+            "Windowsで毎日自動取得（任意）", "Run automatically every day in Windows"), padding=8)
         task_box.pack(fill="x", pady=(0, 9))
         self.task_register_btn = ttk.Button(
             task_box, text=self.t("Windowsタスクを登録", "Register daily Windows task"),
@@ -157,7 +157,7 @@ class ScheduledApiDesktop:
         if self._task_busy:
             self.task_register_btn.configure(state="disabled")
             self.task_remove_btn.configure(state="disabled")
-        logbox = ttk.LabelFrame(outer, text=self.t("実行表示", "Audit view"), padding=8)
+        logbox = ttk.LabelFrame(outer, text=self.t("実行結果", "Run results"), padding=8)
         logbox.pack(fill="both", expand=True)
         self.log = tk.Text(logbox, wrap="word", height=13, state="disabled", font=("Consolas", 9))
         scroll = ttk.Scrollbar(logbox, orient="vertical", command=self.log.yview)
@@ -166,11 +166,7 @@ class ScheduledApiDesktop:
         scroll.pack(side="right", fill="y")
         ttk.Label(outer, textvariable=self.status).pack(fill="x", pady=(8, 0))
 
-        if self.monitor_thread is not None or self._once_running:
-            self.start_btn.configure(state="disabled")
-            self.stop_btn.configure(state="normal" if self.monitor_thread is not None else "disabled")
-            self.run_btn.configure(state="disabled")
-            self.dry_btn.configure(state="disabled")
+        self._refresh_execution_controls()
 
     def _build_guide(self) -> None:
         # Long onboarding form remains usable on laptop displays and at 150% DPI.
@@ -412,11 +408,15 @@ class ScheduledApiDesktop:
             ScheduledRunner(raw, dry_run=True)
             self.config = raw
             self._render_summary(raw)
-            self.status.set(self.t("設定OK", "Configuration valid"))
+            self.status.set(self.t("設定を読み込みました。次に「通信せずに確認」を実行してください。",
+                                   "Setup loaded. Next, use Preview without sending."))
+            self._refresh_execution_controls()
             return True
         except Exception as exc:
             self.config = None
+            self.preview_revision = None
             self.status.set(self.t(f"設定エラー: {type(exc).__name__}", f"Configuration error: {type(exc).__name__}"))
+            self._refresh_execution_controls()
             if show_error:
                 messagebox.showerror(self.t("設定エラー", "Configuration error"), str(exc), parent=self.root)
             return False
@@ -429,6 +429,31 @@ class ScheduledApiDesktop:
                 self.jobs.insert("", "end", values=self._job_summary(job))
         hosts = [str(x) for x in raw.get("allow_hosts", [])]
         self.host_label.configure(text=self.t("許可ホスト: ", "Allowed hosts: ") + (", ".join(hosts) if hosts else "-"))
+
+    def _preview_matches_current(self) -> bool:
+        if self.preview_revision is None or self.config is None:
+            return False
+        try:
+            return self._revision(self.config) == self.preview_revision
+        except (OSError, ValueError):
+            return False
+
+    def _refresh_execution_controls(self) -> None:
+        if not hasattr(self, "dry_btn"):
+            return
+        if self._once_running or self.monitor_thread is not None:
+            self.dry_btn.configure(state="disabled")
+            self.run_btn.configure(state="disabled")
+            self.start_btn.configure(state="disabled")
+            self.stop_btn.configure(state="normal" if self.monitor_thread is not None else "disabled")
+        else:
+            ready = self._preview_matches_current()
+            self.dry_btn.configure(state="normal")
+            self.run_btn.configure(state="normal" if ready else "disabled")
+            self.start_btn.configure(state="normal" if ready else "disabled")
+            self.stop_btn.configure(state="disabled")
+        if hasattr(self, "task_register_btn") and not self._task_busy:
+            self.task_register_btn.configure(state="normal" if self._preview_matches_current() else "disabled")
 
     def _append(self, text: str) -> None:
         self.log.configure(state="normal")
@@ -461,6 +486,7 @@ class ScheduledApiDesktop:
             except (OSError, ValueError, RunnerError, json.JSONDecodeError):
                 status = self.t("設定を再確認してください", "Recheck configuration")
         self._finish(ok, text, status)
+        self._refresh_execution_controls()
 
     def _preview_ready(self) -> bool:
         if self.preview_revision is not None and self.config is not None:
@@ -549,10 +575,7 @@ class ScheduledApiDesktop:
         self._once_running = False
         self._append(text)
         self.status.set(status)
-        if self.monitor_thread is None:
-            self.run_btn.configure(state="normal")
-            self.dry_btn.configure(state="normal")
-            self.start_btn.configure(state="normal")
+        self._refresh_execution_controls()
         if not ok:
             messagebox.showerror(self.t("定期API実行", "Scheduled API Runner"), text[-1500:], parent=self.root)
 
@@ -662,11 +685,8 @@ class ScheduledApiDesktop:
 
     def _scheduler_stopped(self) -> None:
         self.monitor_thread = None
-        self.start_btn.configure(state="normal")
-        self.stop_btn.configure(state="disabled")
-        self.run_btn.configure(state="normal")
-        self.dry_btn.configure(state="normal")
-        self.status.set(self.t("停止しました", "Stopped"))
+        self.status.set(self.t("自動取得を停止しました", "Automatic runs stopped"))
+        self._refresh_execution_controls()
 
 
 def self_test() -> int:
