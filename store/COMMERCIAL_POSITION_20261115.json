@@ -1,0 +1,28 @@
+{
+  "schema": "standard_product_commercial_position_v1",
+  "updated": "2026-11-15",
+  "product": "scheduled",
+  "edition": "standard",
+  "launch_model": "FREE",
+  "actual_store_price_change_authorized": false,
+  "rationale": "無料公開候補。CIは安定しUIも改善したが、初回成功に保存済みJSON設定が必要で一般利用者にはまだ技術的。Postman等に無料枠があるため、現段階で課金するより利用実績を集める方がよい。",
+  "release_gates": [
+    "MSIX/Store提出経路の最終化",
+    "日英Store画像",
+    "無料価格設定のオーナー承認"
+  ],
+  "paid_upgrade_gates": [
+    "アプリ内でAPI URL/Method/保存先/時刻を作成できる",
+    "テンプレートから最初の取得を3分以内に作れる",
+    "秘密情報の入力/保存が明確",
+    "結果履歴が視覚的に分かる"
+  ],
+  "common_rules": {
+    "jp_en_parity_required": true,
+    "first_success_target_minutes": 3,
+    "preview_before_side_effects": true,
+    "visible_results_required": true,
+    "do_not_advertise_unavailable_features": true,
+    "store_price_or_market_change_requires_owner_approval": true
+  }
+}
