@@ -194,6 +194,34 @@ The full Local Final QA must remain `HOLD`.
 Do not launch the unsigned EXE again. Do not change Windows security policy, install a
 temporary certificate, use RunAs, or use an alternate launcher.
 
+## Preferred atomic block-lane finalization
+
+Before handing the block evidence to the Store execution owner, prefer the central
+one-command finalizer:
+
+```powershell
+python scripts/finalize_application_control_block_lane.py `
+  --handoff <frozen store-product-handoff.json> `
+  --artifact-receipt <immutable artifact-pull-receipt.json> `
+  --launch-receipt <original unsigned-exe-launch-receipt.json> `
+  --code-integrity-evidence <code-integrity-block-evidence.json> `
+  --output-dir <new immutable evidence directory>
+```
+
+Expected result:
+
+`PRIVATE_STORE_SIGNING_LANE_READY`
+
+It atomically creates:
+
+- `unsigned-exe-launch-reconciliation-receipt.json`
+- `pre-store-static-qa-receipt.json`
+- `handoff-after-pre-store-static-block.json`
+
+It does not relaunch the EXE, alter Windows security, install the package, or perform
+any Store/Partner Center write. If validation fails, partial staging is removed and
+the lane remains HOLD.
+
 ## Store-signed Private QA lane
 
 Because the exact unsigned EXE is blocked before process start, the remaining GUI and
