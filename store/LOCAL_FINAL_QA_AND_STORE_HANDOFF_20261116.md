@@ -69,7 +69,7 @@ confirmation. Do **not** repeat those steps unless evidence integrity is lost.
 
 Current state:
 
-`APPLICATION_CONTROL_BLOCKED_STORE_SIGNED_QA_REQUIRED`
+`PRIVATE_STORE_SIGNING_LANE_READY`
 
 Frozen candidate:
 
@@ -199,6 +199,24 @@ The full Local Final QA must remain `HOLD`.
 
 Do not launch the unsigned EXE again. Do not change Windows security policy, install a
 temporary certificate, use RunAs, or use an alternate launcher.
+
+## Atomic block-lane finalization — completed
+
+The code-owner lane has reported successful completion of the central atomic
+Application Control block finalizer.
+
+Current reported state:
+
+`PRIVATE_STORE_SIGNING_LANE_READY`
+
+Do not rerun the same finalizer or the unsigned executable unless evidence integrity
+is lost. The immutable outputs are now the handoff boundary to the Store execution
+owner.
+
+The code-owner lane stops here. The remaining dependency is live Partner Center:
+confirm a zero-cost Private acquisition route and obtain the Microsoft Store-signed
+build of the same frozen candidate. Resume JP/EN GUI, DPI, HTTPS/CSV and Task
+Scheduler physical QA only on that Store-delivered signed build.
 
 ## Preferred atomic block-lane finalization
 
