@@ -62,6 +62,47 @@ from the checked-out Windows-all-auto worktree with this product's exact handoff
 package path. `READY_FOR_MSIX_UPLOAD_APPROVAL` is only an approval boundary; it does
 not authorize an upload.
 
+## One-shot unsigned exact EXE launch
+
+After the exact artifact and static package checks are complete, perform at most one
+normal-user launch attempt of the exact unpacked EXE. Use the shared
+Windows-all-auto wrapper rather than an ad-hoc launcher:
+
+```powershell
+pwsh -File .\scripts\run_unsigned_exact_exe_smoke.ps1 `
+  -ExePath <exact unpacked ScheduledApiRunner.exe> `
+  -ExpectedSha256 <package.exe_sha256 from store-product-handoff.json> `
+  -OutputReceipt <new evidence path> `
+  -ObservationSeconds 60
+```
+
+Requirements:
+
+- run from a non-elevated PowerShell session;
+- the wrapper re-hashes the EXE immediately before launch;
+- exactly one launch attempt;
+- no `RunAs`, temporary certificate, security-policy change, or alternate bypass;
+- no MSIX install or Store operation.
+
+If Code Integrity evidence is observed, record
+`APPLICATION_CONTROL_BLOCKED` and stop. Do not retry or bypass it.
+If the process starts but is still open after the observation window, do not relaunch;
+close it normally through the app UI and preserve the HOLD evidence.
+A clean exit only proves the launch/normal-exit slice. The overall local QA remains
+`HOLD` until the remaining product acceptance checks pass.
+
+Bind the launch evidence into a new QA evidence file with:
+
+```powershell
+python scripts/apply_unsigned_exe_launch_receipt.py `
+  --handoff <store-product-handoff.json> `
+  --qa-template <local-final-qa-template.json> `
+  --launch-receipt <unsigned-exe-launch-receipt.json> `
+  --output <new launch-bound-local-qa.json>
+```
+
+The binder never upgrades the whole product to PASS and never authorizes Store write.
+
 ## Product acceptance
 
 - JP/EN first-run workflow;
