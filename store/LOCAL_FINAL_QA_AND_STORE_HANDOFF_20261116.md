@@ -62,6 +62,43 @@ from the checked-out Windows-all-auto worktree with this product's exact handoff
 package path. `READY_FOR_MSIX_UPLOAD_APPROVAL` is only an approval boundary; it does
 not authorize an upload.
 
+## Current frozen-candidate state — 2026-11-17
+
+The frozen candidate has already completed exact artifact staging and local static
+confirmation. Do **not** repeat those steps unless evidence integrity is lost.
+
+Current state:
+
+`PASS_STATIC_ONLY_GUI_PENDING`
+
+Frozen candidate:
+
+- source: `28ef873ab2ff325b8f26c61a9ba48701280e8290`
+- run: `44093493317`
+- artifact ID: `14333575447`
+- artifact digest:
+  `sha256:b45d53a0473f5b8cdcac64c1ffdcf12957919da2e5cb846564344d757165afa7`
+- MSIX SHA256:
+  `db599cdfa673688e8fe7db70d11acc69010562636c67f4996b4cba36adfd8877`
+- unpacked EXE SHA256:
+  `06d3b92bd83281750e5a454f9add6526fa90f6bfc29017fd6919bbeaa64213d9`
+
+Already confirmed locally:
+
+- immutable artifact receipt;
+- repeated evidence/workspace/template creation refused and prior evidence hashes
+  unchanged;
+- MakeAppx unpack PASS;
+- Manifest Identity / Publisher / Version / Architecture PASS;
+- unpacked EXE SHA PASS;
+- Defender custom scan: no threats for the exact MSIX and EXE;
+- Authenticode: MSIX and EXE are `NotSigned`, which is expected for this lane;
+- no rebuild, install, security bypass, Store write, or local duplicate full CI suite.
+
+The local-final QA template remains `HOLD`. The next physical action is **not**
+another static preflight; it is the single normal-user launch attempt below, and that
+action still requires action-time confirmation.
+
 ## One-shot unsigned exact EXE launch
 
 After the exact artifact and static package checks are complete, perform at most one
