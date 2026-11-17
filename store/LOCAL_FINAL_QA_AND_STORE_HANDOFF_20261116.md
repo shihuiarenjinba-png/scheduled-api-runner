@@ -69,7 +69,7 @@ confirmation. Do **not** repeat those steps unless evidence integrity is lost.
 
 Current state:
 
-`PASS_STATIC_ONLY_GUI_PENDING`
+`APPLICATION_CONTROL_BLOCKED_STORE_SIGNED_QA_REQUIRED`
 
 Frozen candidate:
 
@@ -95,9 +95,10 @@ Already confirmed locally:
 - Authenticode: MSIX and EXE are `NotSigned`, which is expected for this lane;
 - no rebuild, install, security bypass, Store write, or local duplicate full CI suite.
 
-The local-final QA template remains `HOLD`. The next physical action is **not**
-another static preflight; it is the single normal-user launch attempt below, and that
-action still requires action-time confirmation.
+The local-final QA template remains `HOLD`. Static verification is complete and the
+one-shot unsigned launch has also completed with an Application Control block. Do not
+repeat either step. Remaining physical QA resumes only on the Store-signed Private
+distribution of the same frozen candidate.
 
 ## One-shot unsigned exact EXE launch
 
@@ -139,6 +140,88 @@ python scripts/apply_unsigned_exe_launch_receipt.py `
 ```
 
 The binder never upgrades the whole product to PASS and never authorizes Store write.
+
+## One-shot launch result — 2026-11-18
+
+The authorized one-shot launch of the frozen exact unsigned EXE is complete.
+
+Final classification:
+
+`APPLICATION_CONTROL_BLOCKED`
+
+Observed:
+
+- launch attempts: `1`
+- normal user context: yes
+- process started: no
+- exit code: N/A
+- normal exit: no
+- original wrapper status: `LAUNCH_FAILED`
+- delayed Code Integrity block-class events: `3033`, `3077`
+- supplemental event: `3118`
+- policy: `VerifiedAndReputableDesktop`
+- policy GUID: `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`
+- residual process count: `0`
+- security bypass: none
+- second launch: none
+
+The original launch receipt remains immutable. It must not be edited from
+`LAUNCH_FAILED` to `APPLICATION_CONTROL_BLOCKED`.
+
+Instead, normalize the later Code Integrity evidence as a separate
+`code-integrity-block-evidence/1` file and produce a third reconciliation receipt:
+
+```powershell
+python scripts/reconcile_delayed_code_integrity_launch.py `
+  --handoff <frozen store-product-handoff.json> `
+  --launch-receipt <original unsigned-exe-launch-receipt.json> `
+  --code-integrity-evidence <code-integrity-block-evidence.json> `
+  --output <new unsigned-exe-launch-reconciliation-receipt.json>
+```
+
+Then bind that reconciliation receipt into a **new** QA evidence file:
+
+```powershell
+python scripts/apply_unsigned_exe_launch_receipt.py `
+  --handoff <frozen store-product-handoff.json> `
+  --qa-template <local-final-qa-template.json> `
+  --launch-receipt <unsigned-exe-launch-reconciliation-receipt.json> `
+  --output <new launch-blocked-local-qa.json>
+```
+
+The full Local Final QA must remain `HOLD`.
+
+Do not launch the unsigned EXE again. Do not change Windows security policy, install a
+temporary certificate, use RunAs, or use an alternate launcher.
+
+## Store-signed Private QA lane
+
+Because the exact unsigned EXE is blocked before process start, the remaining GUI and
+product-specific physical QA must move to a Microsoft Store-signed Private
+distribution of the same frozen candidate.
+
+The code-owner lane must stop before Store writes. Hand the following immutable
+binding to the Store execution owner:
+
+- source `28ef873ab2ff325b8f26c61a9ba48701280e8290`
+- run `44093493317`
+- artifact ID `14333575447`
+- artifact digest
+  `sha256:b45d53a0473f5b8cdcac64c1ffdcf12957919da2e5cb846564344d757165afa7`
+- MSIX SHA256
+  `db599cdfa673688e8fe7db70d11acc69010562636c67f4996b4cba36adfd8877`
+- EXE SHA256
+  `06d3b92bd83281750e5a454f9add6526fa90f6bfc29017fd6919bbeaa64213d9`
+- Store ID `9PND0HG61XD6`
+- Identity `OkinawaDesktopTools.ScheduledAPIRunner`
+- Application Control policy and events above
+- package_rebuilt=false
+- security_bypass_used=false
+- package_installed=false
+- Store write=false
+
+After a Store-signed zero-cost Private acquisition path is available, resume physical
+QA with the Store-delivered build. Do not pay to acquire the owner's own application.
 
 ## Product acceptance
 
