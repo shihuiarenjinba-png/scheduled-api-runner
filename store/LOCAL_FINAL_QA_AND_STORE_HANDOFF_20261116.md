@@ -207,7 +207,6 @@ one-command finalizer:
 
 ```powershell
 python scripts/finalize_application_control_block_lane.py `
-  --handoff <frozen store-product-handoff.json> `
   --artifact-receipt <immutable artifact-pull-receipt.json> `
   --launch-receipt <original unsigned-exe-launch-receipt.json> `
   --code-integrity-evidence <code-integrity-block-evidence.json> `
@@ -217,6 +216,10 @@ python scripts/finalize_application_control_block_lane.py `
 Expected result:
 
 `PRIVATE_STORE_SIGNING_LANE_READY`
+
+The finalizer derives the frozen `store-product-handoff.json` path from the immutable
+artifact receipt's `local_handoff_path` by default. It fails closed if the path is
+missing or invalid. `--handoff <path>` may be used only as an explicit override.
 
 It atomically creates:
 
