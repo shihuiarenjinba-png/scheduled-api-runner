@@ -63,6 +63,16 @@ jobs:
           if (-not (Test-Path -LiteralPath $shaFile -PathType Leaf)) { throw "MSIX checksum file missing" }
           $recordedHashLine = (Get-Content -LiteralPath $shaFile -Raw).Trim()
           if ($recordedHashLine -cne "$actualHash  $($report.msix_file)") { throw "MSIX checksum file mismatch" }
+      - name: Generate exact-package Store handoff
+        shell: powershell
+        run: |
+          $outputDir = "store-out-$env:GITHUB_RUN_ID"
+          python store/generate_store_handoff.py `
+            --profile store/STORE_HANDOFF_PROFILE_20261116.json `
+            --report (Join-Path $outputDir "msix_validation.json") `
+            --output (Join-Path $outputDir "store-product-handoff.json") `
+            --artifact-run-id $env:GITHUB_RUN_ID
+          if ($LASTEXITCODE -ne 0) { throw "Store handoff generation failed" }
       - uses: actions/upload-artifact@v4
         with:
           name: ScheduledApiRunner-Windows
@@ -77,5 +87,10 @@ jobs:
             store-out-*/*.msix
             store-out-*/msix_validation.json
             store-out-*/msix.sha256.txt
+            store-out-*/store-product-handoff.json
+            store/STORE_HANDOFF_PROFILE_20261116.json
+            store/LOCAL_FINAL_QA_AND_STORE_HANDOFF_20261116.md
+            store/STORE_LISTING_DRAFT_JA_EN.md
+            store/PRIVACY_POLICY.md
+            store/RUNFULLTRUST_JUSTIFICATION.md
           if-no-files-found: error
-

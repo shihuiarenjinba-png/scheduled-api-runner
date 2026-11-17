@@ -1,0 +1,49 @@
+{
+  "schema_version": "store-handoff-profile/1",
+  "product": {
+    "id": "scheduled-api-runner",
+    "type": "app",
+    "name": "Scheduled API Runner",
+    "edition": "standard",
+    "summary": "Collect authorized HTTPS JSON API values into dated CSV history with guarded local scheduling.",
+    "submission_kind": "new",
+    "submission_route": "msix_pwa_app",
+    "repository": "https://github.com/shihuiarenjinba-png/scheduled-api-runner",
+    "source_ref": "codex/scheduled-standard-consumer-ui-20261113",
+    "market_preset": ""
+  },
+  "identity": {
+    "store_id": "9PND0HG61XD6",
+    "name": "OkinawaDesktopTools.ScheduledAPIRunner",
+    "publisher": "CN=46263F21-A700-41DB-8C9B-114C22FB82FC",
+    "version": "1.0.0.0",
+    "architecture": "x64",
+    "package_family_name": "OkinawaDesktopTools.ScheduledAPIRunner_j8yefg9jgfh58",
+    "package_sid": ""
+  },
+  "commercial": {
+    "model": "free",
+    "strategy": "free_launch",
+    "currency": "JPY",
+    "free_trial": "none"
+  },
+  "distribution": {
+    "audience": "PRIVATE_AUDIENCE_TEST"
+  },
+  "security_fields": {
+    "local_file_folder_access": true,
+    "external_network": true,
+    "external_account_required": false,
+    "camera": false,
+    "microphone": false,
+    "location": false,
+    "restricted_capability_runFullTrust": true,
+    "non_microsoft_driver_or_nt_service": false
+  },
+  "release_holds": [
+    "LOCAL_REAL_API_ACCEPTANCE",
+    "LOCAL_TASK_SCHEDULER_ACCEPTANCE",
+    "LIVE_PARTNER_CENTER_REVERIFY",
+    "OWNER_ASSET_SECURITY_APPROVAL"
+  ]
+}
