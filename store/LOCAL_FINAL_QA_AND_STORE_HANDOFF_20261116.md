@@ -19,14 +19,29 @@ Do not rebuild before QA. A rebuild creates different package bytes.
 
 ## Local preflight
 
-1. Checkout the exact `product.source_sha` from `store-product-handoff.json`.
-2. Run `python -m unittest discover -s tests -v`.
-3. Recompute the MSIX SHA256 and require an exact match to both
-   `msix.sha256.txt` and `store-product-handoff.json`.
-4. Use MakeAppx only to unpack for inspection; do not weaken Windows security or
-   install a trust certificate merely to run an unsigned technical draft.
-5. Confirm the unpacked EXE SHA matches `package.exe_sha256`.
-6. Run the unpacked EXE self-test and physical GUI acceptance.
+GitHub CI is the primary test environment. Do not duplicate the full unit/reliability
+suite locally merely because the artifact reached the physical Windows machine.
+
+1. Use the exact successful GitHub artifact and its `store-product-handoff.json`.
+2. Confirm the local MSIX file exists and recompute its SHA256; require an exact match
+   to both `msix.sha256.txt` and the handoff.
+3. Use Windows-all-auto's common local pre-upload conveyor to unpack the same MSIX and
+   verify Manifest Identity / Publisher / Version / Architecture plus the main EXE SHA.
+4. Do not rebuild the product locally. A rebuild is a different candidate.
+5. Do not install a temporary certificate, weaken Windows security, or bypass
+   Application Control merely to run an unsigned technical draft.
+6. Perform only Windows-specific/product-specific physical acceptance that GitHub CI
+   cannot prove.
+
+Preferred common entrypoint after the exact artifact is staged:
+
+```powershell
+pwsh -File .\scripts\run_store_preupload_readiness.ps1
+```
+
+from the checked-out Windows-all-auto worktree with this product's exact handoff and
+package path. `READY_FOR_MSIX_UPLOAD_APPROVAL` is only an approval boundary; it does
+not authorize an upload.
 
 ## Product acceptance
 
