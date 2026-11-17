@@ -25,10 +25,13 @@ repository/artifact name:
 ```powershell
 python scripts/pull_group_b_store_product.py `
   --product-id scheduled-api-runner `
-  --run-id <exact successful GitHub Actions run id> `
   --target-root C:\path\to\group-b-local-inbox `
   --receipt C:\path\to\evidence\artifact-pull-receipt.json
 ```
+
+The wrapper auto-discovers a unique successful Store-build run for the current
+registered branch HEAD. If none exists it HOLDs; if more than one exact-head success
+exists it requires an explicit `--run-id` rather than guessing.
 
 The pull receipt is immutable evidence only. It must record no Store submission,
 certification, or publication.
