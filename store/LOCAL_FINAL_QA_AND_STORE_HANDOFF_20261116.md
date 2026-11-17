@@ -161,6 +161,12 @@ Observed:
 - supplemental event: `3118`
 - policy: `VerifiedAndReputableDesktop`
 - policy GUID: `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`
+- policy ID: `27555.1000.240208`
+- correlation Activity ID: `{2f3574e4-74dd-0008-cd37-9c3add74dd01}`
+- status: `0xc0e90002`
+- event flat hash:
+  `06D3B92BD83281750E5A454F9ADD6526FA90F6BFC29017FD6919BBEAA64213D9`
+- event flat hash == frozen EXE SHA256: yes
 - residual process count: `0`
 - security bypass: none
 - second launch: none
